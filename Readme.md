@@ -5,7 +5,7 @@ SoundAQnet aims to convert the soundscape audio clips (**only files containing o
 **Note**: 
 - This repo is copied and adapted from a part of [SoundSCaper](https://github.com/Yuanbo2020/SoundSCaper). The credits goes to Hou et. al (2026) 
 
-- Since the data processing needs to run an external windows application (ISO_532-1.exe - for loundness extraction), please use this repo on Windows compters
+- Since the data processing needs to run an external windows application (ISO_532-1.exe - for loundness extraction), please use this repo on Windows computers
 
 ## Instaltion
 Before starting installation, please install conda and setup an environment:
