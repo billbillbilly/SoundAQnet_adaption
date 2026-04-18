@@ -1,0 +1,4 @@
+pcm16
+Dataset_wav/*.WAV
+Dataset_wav_loudness
+Dataset_mel
