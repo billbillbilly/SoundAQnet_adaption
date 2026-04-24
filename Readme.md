@@ -7,7 +7,7 @@ SoundAQnet aims to convert the soundscape audio clips (**only files containing o
 
 - Since the data processing needs to run an external windows application (ISO_532-1.exe - for loundness extraction), please use this repo on Windows computers
 
-## Instaltion
+## Installation
 Before starting installation, please install conda and setup an environment:
 ```sh
 conda create -n soundqa python=3.10
