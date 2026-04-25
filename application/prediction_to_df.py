@@ -10,6 +10,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--export", default="both",
+                        type=str,
                         choices=["both", "aq", "event"])
     args = parser.parse_args()
 
@@ -109,7 +110,7 @@ def main():
     if args.export in ["both", "event"]:
         event_dir = os.path.join(os.getcwd(), 'SoundAQnet_event_probability')
         print(f"load from {event_dir}")
-        files = [p for p in Path(PAQ_dir).iterdir() if p.is_file()]
+        files = [p for p in Path(event_dir).iterdir() if p.is_file()]
         event_labels = ['Silence', 'Human_sounds', 'Wind', 'Water', 'Natural_sounds', 'Traffic',
                     'Sounds_of_things', 'Vehicle', 'Bird', 'Outside_rural_or_natural',
                     'Environment_and_background', 'Speech', 'Music', 'Noise', 'Animal']
@@ -119,7 +120,7 @@ def main():
             df = pd.read_csv(files[i], header=None, names=["event"])
             prob = df["event"].to_list()
             reranked = sorted(zip(event_labels, prob), key=lambda x: x[1], reverse=True)
-            dic['id'] += id
+            dic['id'] += [id]
             dic['event_rank'] += [[label for rank, (label, score) in enumerate(reranked, 1)]]
 
         out = pd.DataFrame(dic)
