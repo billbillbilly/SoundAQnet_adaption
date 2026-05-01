@@ -303,6 +303,17 @@ def main():
 
     audioFiles = audioFiles[start_idx:end_idx]
     print(f"Processing slice [{start_idx}:{end_idx}] -> {len(audioFiles)} files")
+
+    # ── skip existing outputs up front, before spawning any workers ──
+    if not args.overwrite:
+        pending = [f for f in audioFiles
+                   if not os.path.exists(audio_to_output_path(f, output_dir))]
+        skip_count = len(audioFiles) - len(pending)
+        audioFiles = pending
+        print(f"Skipping {skip_count} already-complete file(s); {len(audioFiles)} remaining")
+    else:
+        skip_count = 0
+
     print(f"Output dir: {output_dir}")
     print(f"Temp root: {tmp_root}")
     print(f"Workers: {args.num_workers}")
@@ -326,7 +337,6 @@ def main():
     ]
 
     ok_count = 0
-    skip_count = 0
     err_count = 0
     error_log_path = os.path.join(output_dir, "errors.log")
 

@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 def create_folder(fd):
     if not os.path.exists(fd):
-        os.makedirs(fd)
+        os.makedirs(fd, exist_ok=True)
 
 
 def listFnames(dirName, ext=''):
@@ -85,7 +85,13 @@ def run_jobs(input_dir, output_dir):
     logmel_extractor.to(device)
 
     audio_files = listFnames(input_dir, '.wav')
-    print(f"Find {len(audio_files)} audio files")
+    print(f"Found {len(audio_files)} audio files")
+
+    audio_files = [f for f in audio_files
+                   if not os.path.exists(
+                       os.path.join(output_dir, os.path.basename(f).replace('.wav', '.npy'))
+                   )]
+    print(f"Skipping already-complete files; {len(audio_files)} remaining")
 
     for n, audio_path in tqdm(enumerate(audio_files)):
         audioname = os.path.basename(audio_path)
