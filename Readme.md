@@ -27,7 +27,7 @@ conda install -c conda-forge ffmpeg
 Extrat log mel features from clips using: 
 ```sh
 cd feature_extraction
-python ISO_loudness_para.py --input_dir $input_dir --output_dir $output_dir
+python ISO_loudness_fast.py --input_dir $input_dir --output_dir $output_dir --tmp_dir $temp --num_workers $num --chunk_size $size
 python log_mel_spectrogram.py --input_dir $input_dir --output_dir $output_dir
 cd ..
 ```
