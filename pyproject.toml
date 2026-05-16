@@ -1,0 +1,144 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "soundaqnet"
+version = "0.1.0"
+description = "Inferring affective quality from soundscape clips using the SoundAQnet model"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Xiaohao Yang", email = "xiaohaoy111@gmail.com" }]
+requires-python = ">=3.10"
+keywords = [
+    "soundscape",
+    "audio",
+    "deep learning",
+    "affective quality",
+    "acoustics",
+    "psychoacoustics",
+    "ISO 532-1",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+]
+
+# ── Core dependencies ────────────────────────────────────────────────────────
+#
+# IMPORTANT — torch, torchaudio, torchvision, and dgl are NOT listed here
+# because they require platform- or hardware-specific index URLs that cannot
+# be expressed in pyproject.toml.  Install them BEFORE this package.
+# See README.md → "Installation" for the exact commands for your OS / GPU.
+#
+# Required exact versions (for reproducibility):
+#   torch==2.1.0   torchaudio==2.1.0   torchvision==0.16.0   dgl (CUDA or CPU)
+#
+# If none of the above are pre-installed, pip will pull CPU-only torch 2.1.0
+# from PyPI automatically via the torchlibrosa/torchdata transitive dependency —
+# which is fine for CPU inference but will lack CUDA acceleration.
+# ─────────────────────────────────────────────────────────────────────────────
+dependencies = [
+    # Torch ecosystem — DGL is no longer required; the GatedGCN graph layers
+    # are implemented in pure PyTorch, so any torch >=2.1.0 is supported.
+    # Pre-install GPU builds from their custom index URLs (see README).
+    "torch>=2.1.0",
+    "torchaudio>=2.1.0",
+    "torchvision>=0.16.0",
+    "torchlibrosa>=0.1.0",
+
+    # Audio & signal processing
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "pydub>=0.25.0",
+
+    # Data
+    "numpy>=1.21.0,<2.0.0",  # numpy 2.x breaks several audio libs
+    "pandas>=1.5.0",
+    "h5py>=3.7.0",
+
+    # Utilities
+    "tqdm>=4.60.0",
+    "scikit-learn>=0.24.0",
+
+    # ── Platform-specific ────────────────────────────────────────────────────
+    # On macOS and Linux the bundled ISO_532-1.exe cannot run.
+    # mosqito provides a pure-Python ISO 532-1 Zwicker loudness implementation.
+    "mosqito>=1.2.0; sys_platform != 'win32'",
+]
+
+[project.optional-dependencies]
+# ── GPU installation extras ──────────────────────────────────────────────────
+# These extras do NOT install the wheels themselves (custom index URLs prevent
+# that), but they record which CUDA build is expected, and running:
+#   pip install soundaqnet[cuda121]
+# will trigger the version-check on import.
+#
+# To actually install GPU-enabled wheels, run the commands in README first.
+cuda121 = []   # CUDA 12.1 — for Linux/Windows + NVIDIA GPU
+cuda118 = []   # CUDA 11.8 — alternative NVIDIA build
+mps     = []   # Apple Silicon (MPS) — macOS arm64, uses default PyPI torch
+
+# ── Development tools ────────────────────────────────────────────────────────
+dev = [
+    "build>=1.0",
+    "twine>=4.0",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=24.0",
+    "ruff>=0.4",
+]
+
+# Convenience: everything needed for a full dev environment
+all = ["soundaqnet[dev]"]
+
+[project.urls]
+Homepage      = "https://github.com/billbillbilly/SoundAQnet_adaption"
+Repository    = "https://github.com/billbillbilly/SoundAQnet_adaption"
+"Bug Tracker" = "https://github.com/billbillbilly/SoundAQnet_adaption/issues"
+
+# ── CLI entry points ─────────────────────────────────────────────────────────
+[project.scripts]
+soundaqnet-extract-loudness      = "soundaqnet.feature_extraction.loudness:main"
+soundaqnet-extract-loudness-serial = "soundaqnet.feature_extraction.loudness_serial:main"
+soundaqnet-extract-loudness-para = "soundaqnet.feature_extraction.loudness_parallel:main"
+soundaqnet-extract-mel           = "soundaqnet.feature_extraction.mel_spectrogram:main"
+soundaqnet-infer                 = "soundaqnet.inference:main"
+soundaqnet-to-df                 = "soundaqnet.prediction:main"
+
+# ── Package discovery ─────────────────────────────────────────────────────────
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ── Non-Python assets bundled inside the package ──────────────────────────────
+[tool.setuptools.package-data]
+"soundaqnet" = [
+    "py.typed",
+    "models/*.pth",
+    # Windows-only binary: ISO 532-1 loudness calculator (154 KB)
+    "feature_extraction/ISO_532_bin/ISO_532-1.exe",
+    # Calibration audio for ISO_532-1.exe (93.8 KB)
+    "feature_extraction/calibration_audio_file/*.wav",
+    # Bundled normalization statistics (mean/std from training set)
+    "data/norm_log_mel.pickle",
+    "data/norm_loudness.pickle",
+]
+
+# ── Optional tooling config ───────────────────────────────────────────────────
+[tool.black]
+line-length    = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+select      = ["E", "F", "W", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
