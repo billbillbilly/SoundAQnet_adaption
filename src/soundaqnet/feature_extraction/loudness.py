@@ -25,7 +25,7 @@ Public API
 
 CLI
 ---
-    soundaqnet-extract-loudness --input_dir <wav_dir> --output_dir <out_dir> \\
+    soundaqnet-extract-loudness --input_dir <audio_dir> --output_dir <out_dir> \\
                                 [--num_workers N]
     soundaqnet-extract-loudness-serial  (single-threaded)
     soundaqnet-extract-loudness-para    (process-based parallel)
@@ -661,7 +661,7 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--input_dir",   required=True,
-                        help="Directory containing .wav files.")
+                        help="Directory of audio files (.wav, .mp3, .flac, .ogg, .aiff, .m4a, .opus). Searched recursively.")
     parser.add_argument("--output_dir",  default="Dataset_wav_loudness",
                         help="Output directory for .npy loudness files.")
     parser.add_argument("--tmp_dir",     default=None,

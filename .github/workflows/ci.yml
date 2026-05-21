@@ -33,7 +33,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       # Install CPU-only torch to keep CI fast and dependency-free of CUDA
+      # shell: bash ensures backslash line-continuation works on Windows too
+      # (Git Bash is pre-installed on all GitHub Windows runners).
       - name: Install CPU torch
+        shell: bash
         run: |
           pip install torch torchvision torchaudio \
             --index-url https://download.pytorch.org/whl/cpu

@@ -94,12 +94,14 @@ jobs:
           path: dist/
 
       # Install CPU-only torch first (avoids downloading CUDA builds in CI)
+      # shell: bash ensures glob expansion and backslash continuation work on Windows.
       - name: Install CPU torch
+        shell: bash
         run: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install wheel + test dependencies
-        run: |
-          pip install $(ls dist/*.whl) pytest
+        shell: bash
+        run: pip install $(ls dist/*.whl) pytest
 
       - name: Run structural smoke tests
         run: pytest tests/test_imports.py -v
