@@ -22,6 +22,14 @@ _run_all_checks()
 
 # Re-export the top-level public API so users can write:
 #   from soundaqnet import SoundAQnet
-from soundaqnet.inference import SoundAQnet  # noqa: F401
+#
+# Use a lazy import so that `import soundaqnet` succeeds even when torch is
+# not yet installed (e.g. during pip dependency resolution).  The heavy import
+# only happens when the user actually accesses the SoundAQnet class.
+def __getattr__(name: str):
+    if name == "SoundAQnet":
+        from soundaqnet.inference import SoundAQnet  # noqa: F401
+        return SoundAQnet
+    raise AttributeError(f"module 'soundaqnet' has no attribute {name!r}")
 
 __all__ = ["SoundAQnet", "__version__"]

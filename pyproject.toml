@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "soundaqnet"
@@ -39,7 +39,7 @@ classifiers = [
 # See README.md → "Installation" for the exact commands for your OS / GPU.
 #
 # Required exact versions (for reproducibility):
-#   torch==2.1.0   torchaudio==2.1.0   torchvision==0.16.0   dgl (CUDA or CPU)
+#   torch==2.1.0   torchaudio==2.1.0   torchvision==0.16.0
 #
 # If none of the above are pre-installed, pip will pull CPU-only torch 2.1.0
 # from PyPI automatically via the torchlibrosa/torchdata transitive dependency —

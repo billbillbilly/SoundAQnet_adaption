@@ -220,7 +220,7 @@ class SoundAQnet(nn.Module):
         self.conv_block1_kernel_9_loudness = ConvBlock(in_channels=1, out_channels=16,
                                               kernel_size=kernel_size, padding=(0, 0))
         self.conv_block2_kernel_9_loudness = ConvBlock_dilation(in_channels=16, out_channels=32, kernel_size=kernel_size,
-                                                       padding=(0, 0), dilation=(3, 1))
+                                                       padding=(0, 0), dilation=(2, 1))
         self.conv_block3_kernel_9_loudness = ConvBlock_dilation(in_channels=32, out_channels=64, kernel_size=kernel_size,
                                                        padding=(0, 0), dilation=(3, 1))
 

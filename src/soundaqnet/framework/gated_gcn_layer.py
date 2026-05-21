@@ -51,8 +51,11 @@ class GatedGCNLayer(nn.Module):
         N   = num_nodes
         src = torch.tensor([i for i in range(N) for j in range(N)], dtype=torch.long)
         dst = torch.tensor([j for i in range(N) for j in range(N)], dtype=torch.long)
-        self.register_buffer('_src_tmpl', src)  # [N²]
-        self.register_buffer('_dst_tmpl', dst)  # [N²]
+        # persistent=False: buffers move with .to(device) but are NOT saved in
+        # state_dict, so pre-trained .pth files (which lack these keys) load
+        # cleanly with the default strict=True.
+        self.register_buffer('_src_tmpl', src, persistent=False)  # [N²]
+        self.register_buffer('_dst_tmpl', dst, persistent=False)  # [N²]
 
     def forward(self, h, e):
         """
@@ -154,8 +157,8 @@ class GatedGCNLayerEdgeFeatOnly(nn.Module):
         N   = num_nodes
         src = torch.tensor([i for i in range(N) for j in range(N)], dtype=torch.long)
         dst = torch.tensor([j for i in range(N) for j in range(N)], dtype=torch.long)
-        self.register_buffer('_src_tmpl', src)
-        self.register_buffer('_dst_tmpl', dst)
+        self.register_buffer('_src_tmpl', src, persistent=False)
+        self.register_buffer('_dst_tmpl', dst, persistent=False)
 
     def forward(self, h, e):
         h_in = h
@@ -219,8 +222,8 @@ class GatedGCNLayerIsotropic(nn.Module):
         N   = num_nodes
         src = torch.tensor([i for i in range(N) for j in range(N)], dtype=torch.long)
         dst = torch.tensor([j for i in range(N) for j in range(N)], dtype=torch.long)
-        self.register_buffer('_src_tmpl', src)
-        self.register_buffer('_dst_tmpl', dst)
+        self.register_buffer('_src_tmpl', src, persistent=False)
+        self.register_buffer('_dst_tmpl', dst, persistent=False)
 
     def forward(self, h, e):
         h_in = h

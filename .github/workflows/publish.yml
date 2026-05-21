@@ -1,0 +1,130 @@
+name: Publish to PyPI
+
+# ── Trigger ───────────────────────────────────────────────────────────────────
+# Fires when a version tag (v*) is pushed from the 'package' branch.
+# To publish a new release:
+#   git checkout package
+#   git tag v1.2.3
+#   git push origin v1.2.3
+# The build job verifies the tagged commit is on 'package' and aborts
+# if the tag was pushed from any other branch.
+on:
+  push:
+    tags:
+      - "v*"
+
+# ── Permissions required for OIDC Trusted Publisher ──────────────────────────
+# PyPI Trusted Publisher setup (one-time, no API token needed):
+#   1. Go to https://pypi.org/manage/account/publishing/
+#   2. Add a new publisher with:
+#        Owner:      billbillbilly
+#        Repository: SoundAQnet_adaption
+#        Workflow:   publish.yml
+#        Environment: pypi   (optional but recommended)
+permissions:
+  contents: read
+  id-token: write   # required for OIDC token exchange with PyPI
+
+jobs:
+  # ── 1. Build source distribution and wheel ──────────────────────────────────
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so setuptools-scm can read tags
+
+      - name: Verify tag is on the 'package' branch
+        run: |
+          git fetch origin package
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/package; then
+            echo "::error::Tag ${{ github.ref_name }} is not on the 'package' branch. Aborting."
+            exit 1
+          fi
+          echo "Tag ${{ github.ref_name }} confirmed on 'package' branch."
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install build frontend
+        run: python -m pip install --upgrade build
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: List built artifacts
+        run: ls -lh dist/
+
+      - name: Upload artifacts for publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  # ── 2. Smoke-test the wheel on multiple platforms ───────────────────────────
+  test-wheel:
+    name: Smoke-test wheel (${{ matrix.os }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.11"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Download built wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      # Install CPU-only torch first (avoids downloading CUDA builds in CI)
+      - name: Install CPU torch
+        run: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install wheel + test dependencies
+        run: |
+          pip install $(ls dist/*.whl) pytest
+
+      - name: Run structural smoke tests
+        run: pytest tests/test_imports.py -v
+
+  # ── 3. Publish to PyPI via OIDC Trusted Publisher ───────────────────────────
+  publish:
+    name: Publish to PyPI
+    needs: test-wheel
+    runs-on: ubuntu-latest
+
+    # Optional: use a GitHub Environment for extra protection
+    # (add an "pypi" environment in repo Settings → Environments)
+    environment:
+      name: pypi
+      url: https://pypi.org/project/soundaqnet/
+
+    steps:
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # No api-token needed — OIDC Trusted Publisher handles authentication.
+        # The job's id-token: write permission is exchanged for a short-lived
+        # PyPI upload credential automatically.
