@@ -39,21 +39,21 @@ Parallelism
 
 from __future__ import annotations
 
-import os
-import sys
 import argparse
-import subprocess as sbp
-import warnings
+import os
 import shutil
+import subprocess as sbp
+import sys
 import tempfile
 import threading
 import traceback
-from pathlib import Path
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from importlib.resources import files as _pkg_files
+from pathlib import Path
 
-import numpy as np
 import librosa
+import numpy as np
 import soundfile
 from tqdm import tqdm
 
@@ -66,6 +66,7 @@ warnings.filterwarnings("ignore")
 
 
 # ── bundled-asset helpers ─────────────────────────────────────────────────────
+
 
 def _iso532_exe() -> Path:
     """Return the path to the bundled ISO_532-1.exe (Windows only)."""
@@ -86,9 +87,13 @@ def _iso532_exe() -> Path:
 
 def _calibration_wav() -> Path:
     """Return the path to the bundled calibration WAV (1 kHz / 60 dB SPL)."""
-    wav = Path(str(_pkg_files("soundaqnet.feature_extraction")
-                   / "calibration_audio_file"
-                   / "calibration_signal_sine_1kHz_60dB.wav"))
+    wav = Path(
+        str(
+            _pkg_files("soundaqnet.feature_extraction")
+            / "calibration_audio_file"
+            / "calibration_signal_sine_1kHz_60dB.wav"
+        )
+    )
     if not wav.exists():
         raise FileNotFoundError(
             f"Bundled calibration WAV not found: {wav}\n"
@@ -115,6 +120,7 @@ def _get_worker_dir(tmp_root: str) -> str:
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 
+
 def createDirs(dname: str) -> None:
     os.makedirs(dname, exist_ok=True)
 
@@ -124,8 +130,7 @@ def listFnames(dirName: str) -> list[str]:
     fnames = []
     for rootDir, _, filesList in os.walk(dirName):
         fnames += [
-            os.path.join(rootDir, f) for f in filesList
-            if Path(f).suffix.lower() in SUPPORTED_EXTS
+            os.path.join(rootDir, f) for f in filesList if Path(f).suffix.lower() in SUPPORTED_EXTS
         ]
     return fnames
 
@@ -142,7 +147,7 @@ ALLOWED_SRS = {32000, 44100, 48000}
 def is_iso_conformant(src_path: str, target_sr: int) -> bool:
     """Return True only for WAV files already in the exact format the exe needs."""
     if Path(src_path).suffix.lower() != ".wav":
-        return False   # non-WAV always needs conversion
+        return False  # non-WAV always needs conversion
     try:
         info = soundfile.info(str(src_path))
     except Exception:
@@ -155,8 +160,9 @@ def is_iso_conformant(src_path: str, target_sr: int) -> bool:
     )
 
 
-def prepare_iso_input(src_path: str, out_dir: str, target_sr: int = 48000,
-                      reuse_name: str = "input_iso.wav") -> str:
+def prepare_iso_input(
+    src_path: str, out_dir: str, target_sr: int = 48000, reuse_name: str = "input_iso.wav"
+) -> str:
     """Convert any supported audio format to mono PCM_16 WAV at *target_sr*.
 
     Uses librosa so that mp3, flac, ogg, m4a, aiff, etc. are all handled
@@ -176,14 +182,25 @@ def prepare_iso_input(src_path: str, out_dir: str, target_sr: int = 48000,
     return str(out_path)
 
 
-def runProcess(loudnessExe: str, method: str, soundField: str, audioFile: str,
-               refFile: str, refLevel: float, work_dir: str) -> str:
+def runProcess(
+    loudnessExe: str,
+    method: str,
+    soundField: str,
+    audioFile: str,
+    refFile: str,
+    refLevel: float,
+    work_dir: str,
+) -> str:
     comList = [loudnessExe, method, soundField, audioFile, refFile, str(int(refLevel))]
     proc = sbp.run(
         comList,
-        stdout=sbp.PIPE, stderr=sbp.PIPE, text=True,
-        encoding="utf-8", errors="replace",
-        cwd=work_dir, shell=False,
+        stdout=sbp.PIPE,
+        stderr=sbp.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=work_dir,
+        shell=False,
     )
     output = (proc.stdout or "") + (("\n" + proc.stderr) if proc.stderr else "")
     lowered = output.lower()
@@ -201,10 +218,19 @@ def getData(csv_path: str) -> np.ndarray:
 
 # ── Per-file worker ───────────────────────────────────────────────────────────
 
+
 def process_one(task: tuple) -> dict:
     (
-        audioFile, output_dir, tmp_root, exe, meth, sf, rfile, rlev,
-        target_sr, debug_paths,
+        audioFile,
+        output_dir,
+        tmp_root,
+        exe,
+        meth,
+        sf,
+        rfile,
+        rlev,
+        target_sr,
+        debug_paths,
     ) = task
 
     out_npy = audio_to_output_path(audioFile, output_dir)
@@ -217,8 +243,13 @@ def process_one(task: tuple) -> dict:
             audio_iso = prepare_iso_input(audioFile, out_dir=worker_tmp, target_sr=target_sr)
 
         if debug_paths:
-            for p, label in [(audioFile, "audioFile"), (audio_iso, "audio_iso"),
-                             (exe, "exe"), (rfile, "rfile"), (worker_tmp, "worker_tmp")]:
+            for p, label in [
+                (audioFile, "audioFile"),
+                (audio_iso, "audio_iso"),
+                (exe, "exe"),
+                (rfile, "rfile"),
+                (worker_tmp, "worker_tmp"),
+            ]:
                 if not os.path.exists(p):
                     raise FileNotFoundError(f"{label} not found: {p}")
 
@@ -235,19 +266,21 @@ def process_one(task: tuple) -> dict:
 
     except Exception as e:
         return {
-            "status": "error", "audioFile": audioFile, "output": out_npy,
+            "status": "error",
+            "audioFile": audioFile,
+            "output": out_npy,
             "error": f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
         }
 
 
 # ── mosqito back-end (macOS / Linux) ─────────────────────────────────────────
 
-_TARGET_SR_POSIX = 48000   # mosqito requires exactly 48 kHz
-_CAL_DB          = 60.0    # calibration signal level in dB SPL
-_P_REF_PA        = 20e-6   # ISO 1683 reference sound pressure (20 µPa)
+_TARGET_SR_POSIX = 48000  # mosqito requires exactly 48 kHz
+_CAL_DB = 60.0  # calibration signal level in dB SPL
+_P_REF_PA = 20e-6  # ISO 1683 reference sound pressure (20 µPa)
 
 # Module-level Pa scale cache — computed once, reused by all threads/calls.
-_PA_SCALE:      float | None = None
+_PA_SCALE: float | None = None
 _PA_SCALE_LOCK: threading.Lock = threading.Lock()
 
 
@@ -265,7 +298,7 @@ def _digital_to_pa_scale() -> float:
     if _PA_SCALE is not None:
         return _PA_SCALE
     with _PA_SCALE_LOCK:
-        if _PA_SCALE is not None:          # re-check after acquiring lock
+        if _PA_SCALE is not None:  # re-check after acquiring lock
             return _PA_SCALE
         cal_path = _calibration_wav()
         cal, cal_sr = soundfile.read(str(cal_path), always_2d=False)
@@ -274,12 +307,12 @@ def _digital_to_pa_scale() -> float:
             cal = cal.mean(axis=1)
         # Resample to 48 kHz if needed
         if cal_sr != _TARGET_SR_POSIX:
-            dur   = len(cal) / cal_sr
-            old_t = np.linspace(0, dur, len(cal),                           endpoint=False)
+            dur = len(cal) / cal_sr
+            old_t = np.linspace(0, dur, len(cal), endpoint=False)
             new_t = np.linspace(0, dur, int(round(dur * _TARGET_SR_POSIX)), endpoint=False)
-            cal   = np.interp(new_t, old_t, cal)
-        cal_rms_digital = float(np.sqrt(np.mean(cal ** 2)))
-        cal_rms_pa      = _P_REF_PA * 10 ** (_CAL_DB / 20.0)
+            cal = np.interp(new_t, old_t, cal)
+        cal_rms_digital = float(np.sqrt(np.mean(cal**2)))
+        cal_rms_pa = _P_REF_PA * 10 ** (_CAL_DB / 20.0)
         _PA_SCALE = cal_rms_pa / cal_rms_digital
     return _PA_SCALE
 
@@ -311,22 +344,25 @@ def _posix_worker_one(args: tuple) -> dict:
     try:
         signal_pa, fs = _load_as_pa(audio_path_str, scale)
         N, _N_spec, _bark, _time = loudness_zwtv(signal_pa, fs)
-        arr = np.asarray(N, dtype=np.float32)[:, None]   # (T, 1)
+        arr = np.asarray(N, dtype=np.float32)[:, None]  # (T, 1)
         np.save(out_npy_str, arr)
         return {"status": "ok", "audioFile": audio_path_str, "output": out_npy_str, "error": ""}
     except Exception as exc:
         import traceback
+
         return {
-            "status": "error", "audioFile": audio_path_str, "output": out_npy_str,
+            "status": "error",
+            "audioFile": audio_path_str,
+            "output": out_npy_str,
             "error": f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}",
         }
 
 
 def _extract_loudness_posix(
-    input_dir:   Path,
-    output_dir:  Path,
+    input_dir: Path,
+    output_dir: Path,
     num_workers: int = 4,
-    chunk_size:  int = 5000,
+    chunk_size: int = 5000,
 ) -> None:
     """ISO 532-1 loudness extraction via mosqito (macOS / Linux).
 
@@ -345,26 +381,26 @@ def _extract_loudness_posix(
     num_workers : parallel worker threads (default 4).
     chunk_size  : files submitted to the thread pool per chunk (caps memory).
     """
-    input_dir  = Path(input_dir)
+    input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Compute calibration scale once (cached for subsequent calls).
     scale = _digital_to_pa_scale()
-    print(f"[mosqito] Pa/digital scale = {scale:.5f}  "
-          f"(from {_calibration_wav().name} at {_CAL_DB} dB SPL)")
-
-    audio_files = sorted(
-        f for f in input_dir.iterdir()
-        if f.suffix.lower() in SUPPORTED_EXTS
+    print(
+        f"[mosqito] Pa/digital scale = {scale:.5f}  "
+        f"(from {_calibration_wav().name} at {_CAL_DB} dB SPL)"
     )
 
+    audio_files = sorted(f for f in input_dir.iterdir() if f.suffix.lower() in SUPPORTED_EXTS)
+
     # Skip already-completed outputs.
-    todo = [f for f in audio_files
-            if not (output_dir / (f.stem + ".npy")).exists()]
-    print(f"[mosqito] {len(audio_files)} files found; "
-          f"{len(audio_files) - len(todo)} already done; "
-          f"{len(todo)} remaining.")
+    todo = [f for f in audio_files if not (output_dir / (f.stem + ".npy")).exists()]
+    print(
+        f"[mosqito] {len(audio_files)} files found; "
+        f"{len(audio_files) - len(todo)} already done; "
+        f"{len(todo)} remaining."
+    )
 
     if not todo:
         return
@@ -376,7 +412,7 @@ def _extract_loudness_posix(
         # Sequential fallback.
         for audio_file in tqdm(todo, desc="Extracting loudness"):
             out_npy = str(output_dir / (audio_file.stem + ".npy"))
-            result  = _posix_worker_one((str(audio_file), out_npy, scale))
+            result = _posix_worker_one((str(audio_file), out_npy, scale))
             if result["status"] == "ok":
                 ok_count += 1
             else:
@@ -388,11 +424,8 @@ def _extract_loudness_posix(
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             with tqdm(total=len(todo), desc="Extracting loudness") as pbar:
                 for chunk_start in range(0, len(todo), chunk_size):
-                    chunk   = todo[chunk_start: chunk_start + chunk_size]
-                    tasks   = [
-                        (str(f), str(output_dir / (f.stem + ".npy")), scale)
-                        for f in chunk
-                    ]
+                    chunk = todo[chunk_start : chunk_start + chunk_size]
+                    tasks = [(str(f), str(output_dir / (f.stem + ".npy")), scale) for f in chunk]
                     futures = [executor.submit(_posix_worker_one, t) for t in tasks]
                     for future in as_completed(futures):
                         result = future.result()
@@ -407,11 +440,14 @@ def _extract_loudness_posix(
                                 )
                         pbar.update(1)
 
-    print(f"[mosqito] Done.  OK: {ok_count}  Errors: {err_count}"
-          + (f"  Log: {error_log}" if err_count else ""))
+    print(
+        f"[mosqito] Done.  OK: {ok_count}  Errors: {err_count}"
+        + (f"  Log: {error_log}" if err_count else "")
+    )
 
 
 # ── public API ────────────────────────────────────────────────────────────────
+
 
 def _extract_loudness_single_posix(audio_path: Path) -> np.ndarray:
     """Single-file loudness extraction using mosqito (macOS / Linux)."""
@@ -426,14 +462,14 @@ def _extract_loudness_single_posix(audio_path: Path) -> np.ndarray:
     scale = _digital_to_pa_scale()
     signal_pa, fs = _load_as_pa(str(audio_path), scale)
     N, _N_spec, _bark, _time = loudness_zwtv(signal_pa, fs)
-    return np.asarray(N, dtype=np.float32)[:, None]   # (T, 1)
+    return np.asarray(N, dtype=np.float32)[:, None]  # (T, 1)
 
 
 def extract_loudness_from_file(
-    audio_path:  str | Path | list[str | Path],
-    output_dir:  str | Path | None = None,
-    target_sr:   int = 48000,
-    method:      str = "Varying",
+    audio_path: str | Path | list[str | Path],
+    output_dir: str | Path | None = None,
+    target_sr: int = 48000,
+    method: str = "Varying",
     sound_field: str = "Free",
     num_workers: int = 4,
 ) -> np.ndarray | dict[str, np.ndarray]:
@@ -489,7 +525,7 @@ def extract_loudness_from_file(
         # df = model.predict(mel_dir="mel/", loudness_dir="loudness_features/")
     """
     single = isinstance(audio_path, (str, Path))
-    paths  = [Path(audio_path)] if single else [Path(p) for p in audio_path]
+    paths = [Path(audio_path)] if single else [Path(p) for p in audio_path]
 
     if output_dir is not None:
         out = Path(output_dir)
@@ -540,14 +576,15 @@ def _extract_loudness_single_windows(
     sound_field: str = "Free",
 ) -> np.ndarray:
     """Single-file loudness extraction using ISO_532-1.exe (Windows)."""
-    import tempfile, shutil
+    import shutil
+    import tempfile
 
     METHOD_DICT = {"Varying": "Time_varying", "Stationary": "Stationary"}
     SF_DICT = {"Free": "F", "Diffuse": "D"}
-    exe   = str(_iso532_exe())
+    exe = str(_iso532_exe())
     rfile = str(_calibration_wav())
-    meth  = METHOD_DICT[method]
-    sf    = SF_DICT[sound_field]
+    meth = METHOD_DICT[method]
+    sf = SF_DICT[sound_field]
 
     tmp_dir = tempfile.mkdtemp(prefix="soundaqnet_loud_")
     try:
@@ -613,8 +650,11 @@ def extract_loudness(
     print(f"Found {len(audioFiles)} audio files ({', '.join(SUPPORTED_EXTS)})")
 
     if not overwrite:
-        existing = {Path(e.name).stem for e in os.scandir(str(output_dir))
-                    if e.is_file() and e.name.endswith(".npy")}
+        existing = {
+            Path(e.name).stem
+            for e in os.scandir(str(output_dir))
+            if e.is_file() and e.name.endswith(".npy")
+        }
         before = len(audioFiles)
         audioFiles = [f for f in audioFiles if Path(f).stem not in existing]
         print(f"Skipping {before - len(audioFiles)} already-complete; {len(audioFiles)} remaining")
@@ -629,7 +669,7 @@ def extract_loudness(
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             with tqdm(total=len(audioFiles), desc="Processing") as pbar:
                 for chunk_start in range(0, len(audioFiles), chunk_size):
-                    chunk = audioFiles[chunk_start: chunk_start + chunk_size]
+                    chunk = audioFiles[chunk_start : chunk_start + chunk_size]
                     futures = [executor.submit(process_one, make_task(f)) for f in chunk]
                     for future in as_completed(futures):
                         result = future.result()
@@ -638,7 +678,8 @@ def extract_loudness(
                         else:
                             err_count += 1
                             with open(error_log_path, "a", encoding="utf-8") as fh:
-                                fh.write(f"FILE: {result['audioFile']}\n{result['error']}\n{'='*80}\n")
+                                sep = "=" * 80
+                                fh.write(f"FILE: {result['audioFile']}\n{result['error']}\n{sep}\n")
                         pbar.update(1)
     finally:
         with _worker_dirs_lock:
@@ -651,29 +692,38 @@ def extract_loudness(
 
 # ── CLI entry point ───────────────────────────────────────────────────────────
 
+
 def main() -> int:
     """CLI: soundaqnet-extract-loudness"""
-    METHOD_DICT = {"Varying": "Time_varying", "Stationary": "Stationary"}
-    SF_DICT = {"Free": "F", "Diffuse": "D"}
-
     parser = argparse.ArgumentParser(
         description="Extract ISO 532-1 loudness features (Windows: .exe; macOS/Linux: mosqito).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--input_dir",   required=True,
-                        help="Directory of audio files (.wav, .mp3, .flac, .ogg, .aiff, .m4a, .opus). Searched recursively.")
-    parser.add_argument("--output_dir",  default="Dataset_wav_loudness",
-                        help="Output directory for .npy loudness files.")
-    parser.add_argument("--tmp_dir",     default=None,
-                        help="Temp dir for worker threads (Windows only).")
-    parser.add_argument("--target_sr",   type=int, default=48000, choices=[32000, 44100, 48000])
+    parser.add_argument(
+        "--input_dir",
+        required=True,
+        help=(
+            "Directory of audio files "
+            "(.wav, .mp3, .flac, .ogg, .aiff, .m4a, .opus). "
+            "Searched recursively."
+        ),
+    )
+    parser.add_argument(
+        "--output_dir",
+        default="Dataset_wav_loudness",
+        help="Output directory for .npy loudness files.",
+    )
+    parser.add_argument(
+        "--tmp_dir", default=None, help="Temp dir for worker threads (Windows only)."
+    )
+    parser.add_argument("--target_sr", type=int, default=48000, choices=[32000, 44100, 48000])
     parser.add_argument("--num_workers", type=int, default=os.cpu_count() or 4)
-    parser.add_argument("--chunk_size",  type=int, default=5000)
-    parser.add_argument("--start_idx",   type=int, default=0)
-    parser.add_argument("--end_idx",     type=int, default=None)
-    parser.add_argument("--overwrite",   action="store_true")
-    parser.add_argument("--method",      default="Varying", choices=["Varying", "Stationary"])
-    parser.add_argument("--sound_field", default="Free",    choices=["Free", "Diffuse"])
+    parser.add_argument("--chunk_size", type=int, default=5000)
+    parser.add_argument("--start_idx", type=int, default=0)
+    parser.add_argument("--end_idx", type=int, default=None)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--method", default="Varying", choices=["Varying", "Stationary"])
+    parser.add_argument("--sound_field", default="Free", choices=["Free", "Diffuse"])
     parser.add_argument("--debug_paths", action="store_true")
     args = parser.parse_args()
 

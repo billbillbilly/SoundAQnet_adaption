@@ -1,4 +1,5 @@
 import os
+
 import numpy as np
 
 
@@ -22,7 +23,7 @@ def scale(x, mean, std):
     return (x - mean) / std
 
 
-from sklearn import metrics
+from sklearn import metrics  # noqa: E402
 
 
 def cal_acc_auc(predictions, targets):

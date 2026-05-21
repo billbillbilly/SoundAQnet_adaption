@@ -1,9 +1,10 @@
 import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from soundaqnet.framework import config
 
+from soundaqnet.framework import config
 from soundaqnet.framework.gated_gcn_layer import GatedGCNLayer
 
 
@@ -11,10 +12,10 @@ def move_data_to_gpu(x, cuda, using_float=False):
     if using_float:
         x = torch.Tensor(x)
     else:
-        if 'float' in str(x.dtype):
+        if "float" in str(x.dtype):
             x = torch.Tensor(x)
 
-        elif 'int' in str(x.dtype):
+        elif "int" in str(x.dtype):
             x = torch.LongTensor(x)
 
         else:
@@ -28,43 +29,52 @@ def move_data_to_gpu(x, cuda, using_float=False):
 
 def init_layer(layer):
     if layer.weight.ndimension() == 4:
-        (n_out, n_in, height, width) = layer.weight.size()
+        n_out, n_in, height, width = layer.weight.size()
         n = n_in * height * width
 
     elif layer.weight.ndimension() == 2:
-        (n_out, n) = layer.weight.size()
+        n_out, n = layer.weight.size()
 
-    std = math.sqrt(2. / n)
-    scale = std * math.sqrt(3.)
+    std = math.sqrt(2.0 / n)
+    scale = std * math.sqrt(3.0)
     layer.weight.data.uniform_(-scale, scale)
 
     if layer.bias is not None:
-        layer.bias.data.fill_(0.)
+        layer.bias.data.fill_(0.0)
 
 
 def init_bn(bn):
-    """Initialize a Batchnorm layer. """
+    """Initialize a Batchnorm layer."""
 
-    bn.bias.data.fill_(0.)
-    bn.weight.data.fill_(1.)
+    bn.bias.data.fill_(0.0)
+    bn.weight.data.fill_(1.0)
 
 
 # ----------------------------------------------------------------------------------------------------------------------
+
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=(3, 3), padding=(1, 1)):
 
         super(ConvBlock, self).__init__()
 
-        self.conv1 = nn.Conv2d(in_channels=in_channels,
-                               out_channels=out_channels,
-                               kernel_size=kernel_size, stride=(1, 1),
-                               padding=padding, bias=False)
+        self.conv1 = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=(1, 1),
+            padding=padding,
+            bias=False,
+        )
 
-        self.conv2 = nn.Conv2d(in_channels=out_channels,
-                               out_channels=out_channels,
-                               kernel_size=kernel_size, stride=(1, 1),
-                               padding=padding, bias=False)
+        self.conv2 = nn.Conv2d(
+            in_channels=out_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=(1, 1),
+            padding=padding,
+            bias=False,
+        )
 
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.bn2 = nn.BatchNorm2d(out_channels)
@@ -78,37 +88,49 @@ class ConvBlock(nn.Module):
         init_bn(self.bn1)
         init_bn(self.bn2)
 
-    def forward(self, input, pool_size=(2, 2), pool_type='avg'):
+    def forward(self, input, pool_size=(2, 2), pool_type="avg"):
 
         x = input
         x = F.relu_(self.bn1(self.conv1(x)))
         x = F.relu_(self.bn2(self.conv2(x)))
-        if pool_type == 'max':
+        if pool_type == "max":
             x = F.max_pool2d(x, kernel_size=pool_size)
-        elif pool_type == 'avg':
+        elif pool_type == "avg":
             x = F.avg_pool2d(x, kernel_size=pool_size)
-        elif pool_type == 'none':
+        elif pool_type == "none":
             x = x
         else:
-            raise Exception('Incorrect argument!')
+            raise Exception("Incorrect argument!")
 
         return x
 
 
 class ConvBlock_dilation(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=(3, 3), dilation=(2, 2), padding=(1, 1)):
+    def __init__(
+        self, in_channels, out_channels, kernel_size=(3, 3), dilation=(2, 2), padding=(1, 1)
+    ):
 
         super(ConvBlock_dilation, self).__init__()
 
-        self.conv1 = nn.Conv2d(in_channels=in_channels,
-                               out_channels=out_channels,
-                               kernel_size=kernel_size, stride=(1, 1),
-                               padding=padding, bias=False, dilation=dilation)
+        self.conv1 = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=(1, 1),
+            padding=padding,
+            bias=False,
+            dilation=dilation,
+        )
 
-        self.conv2 = nn.Conv2d(in_channels=out_channels,
-                               out_channels=out_channels,
-                               kernel_size=kernel_size, stride=(1, 1),
-                               padding=padding, bias=False, dilation=dilation)
+        self.conv2 = nn.Conv2d(
+            in_channels=out_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=(1, 1),
+            padding=padding,
+            bias=False,
+            dilation=dilation,
+        )
 
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.bn2 = nn.BatchNorm2d(out_channels)
@@ -122,30 +144,36 @@ class ConvBlock_dilation(nn.Module):
         init_bn(self.bn1)
         init_bn(self.bn2)
 
-    def forward(self, input, pool_size=(2, 2), pool_type='avg'):
+    def forward(self, input, pool_size=(2, 2), pool_type="avg"):
 
         x = input
         x = F.relu_(self.bn1(self.conv1(x)))
         x = F.relu_(self.bn2(self.conv2(x)))
-        if pool_type == 'max':
+        if pool_type == "max":
             x = F.max_pool2d(x, kernel_size=pool_size)
-        elif pool_type == 'avg':
+        elif pool_type == "avg":
             x = F.avg_pool2d(x, kernel_size=pool_size)
-        elif pool_type == 'none':
+        elif pool_type == "none":
             x = x
         else:
-            raise Exception('Incorrect argument!')
+            raise Exception("Incorrect argument!")
 
         return x
 
 
 class SoundAQnet(nn.Module):
-    def __init__(self, max_node_num, node_emb_dim=256,
+    def __init__(
+        self,
+        max_node_num,
+        node_emb_dim=256,
         hidden_dim=32,
         out_dim=64,
         n_layers=1,
-                 event_class=len(config.event_labels),
-                 scene_class=len(config.scene_labels), each_emotion_class=config.each_emotion_class_num, batchnormal=True):
+        event_class=len(config.event_labels),
+        scene_class=len(config.scene_labels),
+        each_emotion_class=config.each_emotion_class_num,
+        batchnormal=True,
+    ):
 
         super(SoundAQnet, self).__init__()
 
@@ -157,72 +185,148 @@ class SoundAQnet(nn.Module):
         frequency_emb_dim = 1
         # --------------------------------------------------------------------------------------------------------
         self.conv_block1 = ConvBlock(in_channels=1, out_channels=16)
-        self.conv_block2 = ConvBlock_dilation(in_channels=16, out_channels=32, padding=(0, 0), dilation=(2, 1))
-        self.conv_block3 = ConvBlock_dilation(in_channels=32, out_channels=64, padding=(0, 0), dilation=(3, 1))
+        self.conv_block2 = ConvBlock_dilation(
+            in_channels=16, out_channels=32, padding=(0, 0), dilation=(2, 1)
+        )
+        self.conv_block3 = ConvBlock_dilation(
+            in_channels=32, out_channels=64, padding=(0, 0), dilation=(3, 1)
+        )
         self.k_3_freq_to_1 = nn.Linear(frequency_num, frequency_emb_dim, bias=True)
 
         # -------------- kernel 5
         kernel_size = (5, 5)
-        self.conv_block1_kernel_5 = ConvBlock(in_channels=1, out_channels=16, kernel_size=kernel_size, padding=(0, 2))
-        self.conv_block2_kernel_5 = ConvBlock_dilation(in_channels=16, out_channels=32, kernel_size=kernel_size,
-                                                       padding=(0, 1), dilation=(2, 1))
-        self.conv_block3_kernel_5 = ConvBlock_dilation(in_channels=32, out_channels=64, kernel_size=kernel_size,
-                                                       padding=(0, 1), dilation=(3, 1))
+        self.conv_block1_kernel_5 = ConvBlock(
+            in_channels=1, out_channels=16, kernel_size=kernel_size, padding=(0, 2)
+        )
+        self.conv_block2_kernel_5 = ConvBlock_dilation(
+            in_channels=16,
+            out_channels=32,
+            kernel_size=kernel_size,
+            padding=(0, 1),
+            dilation=(2, 1),
+        )
+        self.conv_block3_kernel_5 = ConvBlock_dilation(
+            in_channels=32,
+            out_channels=64,
+            kernel_size=kernel_size,
+            padding=(0, 1),
+            dilation=(3, 1),
+        )
         self.k_5_freq_to_1 = nn.Linear(frequency_num, frequency_emb_dim, bias=True)
 
         # -------------- kernel 7
         kernel_size = (7, 7)
-        self.conv_block1_kernel_7 = ConvBlock(in_channels=1, out_channels=16, kernel_size=kernel_size, padding=(0, 3))
-        self.conv_block2_kernel_7 = ConvBlock_dilation(in_channels=16, out_channels=32, kernel_size=kernel_size,
-                                                       padding=(0, 2), dilation=(2, 1))
-        self.conv_block3_kernel_7 = ConvBlock_dilation(in_channels=32, out_channels=64, kernel_size=kernel_size,
-                                                       padding=(0, 2), dilation=(3, 1))
+        self.conv_block1_kernel_7 = ConvBlock(
+            in_channels=1, out_channels=16, kernel_size=kernel_size, padding=(0, 3)
+        )
+        self.conv_block2_kernel_7 = ConvBlock_dilation(
+            in_channels=16,
+            out_channels=32,
+            kernel_size=kernel_size,
+            padding=(0, 2),
+            dilation=(2, 1),
+        )
+        self.conv_block3_kernel_7 = ConvBlock_dilation(
+            in_channels=32,
+            out_channels=64,
+            kernel_size=kernel_size,
+            padding=(0, 2),
+            dilation=(3, 1),
+        )
         self.k_7_freq_to_1 = nn.Linear(frequency_num, frequency_emb_dim, bias=True)
 
         # -------------- kernel 9
         kernel_size = (9, 9)
-        self.conv_block1_kernel_9 = ConvBlock(in_channels=1, out_channels=16, kernel_size=kernel_size, padding=(0, 4))
-        self.conv_block2_kernel_9 = ConvBlock_dilation(in_channels=16, out_channels=32, kernel_size=kernel_size,
-                                                       padding=(0, 3), dilation=(2, 1))
-        self.conv_block3_kernel_9 = ConvBlock_dilation(in_channels=32, out_channels=64, kernel_size=kernel_size,
-                                                       padding=(0, 3), dilation=(3, 1))
+        self.conv_block1_kernel_9 = ConvBlock(
+            in_channels=1, out_channels=16, kernel_size=kernel_size, padding=(0, 4)
+        )
+        self.conv_block2_kernel_9 = ConvBlock_dilation(
+            in_channels=16,
+            out_channels=32,
+            kernel_size=kernel_size,
+            padding=(0, 3),
+            dilation=(2, 1),
+        )
+        self.conv_block3_kernel_9 = ConvBlock_dilation(
+            in_channels=32,
+            out_channels=64,
+            kernel_size=kernel_size,
+            padding=(0, 3),
+            dilation=(3, 1),
+        )
         self.k_9_freq_to_1 = nn.Linear(frequency_num, frequency_emb_dim, bias=True)
-
 
         # ---------------- loudness -----------------------------------------------------------------------------------
         # --------------------------------------------------------------------------------------------------------
-        self.conv_block1_loudness = ConvBlock(kernel_size=(3, 1), padding=(0, 0), in_channels=1, out_channels=16)
-        self.conv_block2_loudness = ConvBlock_dilation(kernel_size=(3, 1), in_channels=16, out_channels=32, padding=(0, 0),
-                                              dilation=(2, 1))
-        self.conv_block3_loudness = ConvBlock_dilation(kernel_size=(3, 1), in_channels=32, out_channels=64, padding=(0, 0),
-                                              dilation=(3, 1))
+        self.conv_block1_loudness = ConvBlock(
+            kernel_size=(3, 1), padding=(0, 0), in_channels=1, out_channels=16
+        )
+        self.conv_block2_loudness = ConvBlock_dilation(
+            kernel_size=(3, 1), in_channels=16, out_channels=32, padding=(0, 0), dilation=(2, 1)
+        )
+        self.conv_block3_loudness = ConvBlock_dilation(
+            kernel_size=(3, 1), in_channels=32, out_channels=64, padding=(0, 0), dilation=(3, 1)
+        )
 
         # -------------- kernel 5
         kernel_size = (5, 1)
-        self.conv_block1_kernel_5_loudness = ConvBlock(in_channels=1, out_channels=16,
-                                              kernel_size=kernel_size, padding=(0, 0))
-        self.conv_block2_kernel_5_loudness = ConvBlock_dilation(in_channels=16, out_channels=32, kernel_size=kernel_size,
-                                                       padding=(0, 0), dilation=(2, 1))
-        self.conv_block3_kernel_5_loudness = ConvBlock_dilation(in_channels=32, out_channels=64, kernel_size=kernel_size,
-                                                       padding=(0, 0), dilation=(3, 1))
+        self.conv_block1_kernel_5_loudness = ConvBlock(
+            in_channels=1, out_channels=16, kernel_size=kernel_size, padding=(0, 0)
+        )
+        self.conv_block2_kernel_5_loudness = ConvBlock_dilation(
+            in_channels=16,
+            out_channels=32,
+            kernel_size=kernel_size,
+            padding=(0, 0),
+            dilation=(2, 1),
+        )
+        self.conv_block3_kernel_5_loudness = ConvBlock_dilation(
+            in_channels=32,
+            out_channels=64,
+            kernel_size=kernel_size,
+            padding=(0, 0),
+            dilation=(3, 1),
+        )
 
         # -------------- kernel 7
         kernel_size = (7, 1)
-        self.conv_block1_kernel_7_loudness = ConvBlock(in_channels=1, out_channels=16,
-                                              kernel_size=kernel_size, padding=(0, 0))
-        self.conv_block2_kernel_7_loudness = ConvBlock_dilation(in_channels=16, out_channels=32, kernel_size=kernel_size,
-                                                       padding=(0, 0), dilation=(2, 1))
-        self.conv_block3_kernel_7_loudness = ConvBlock_dilation(in_channels=32, out_channels=64, kernel_size=kernel_size,
-                                                       padding=(0, 0), dilation=(3, 1))
+        self.conv_block1_kernel_7_loudness = ConvBlock(
+            in_channels=1, out_channels=16, kernel_size=kernel_size, padding=(0, 0)
+        )
+        self.conv_block2_kernel_7_loudness = ConvBlock_dilation(
+            in_channels=16,
+            out_channels=32,
+            kernel_size=kernel_size,
+            padding=(0, 0),
+            dilation=(2, 1),
+        )
+        self.conv_block3_kernel_7_loudness = ConvBlock_dilation(
+            in_channels=32,
+            out_channels=64,
+            kernel_size=kernel_size,
+            padding=(0, 0),
+            dilation=(3, 1),
+        )
 
         # -------------- kernel 9
         kernel_size = (9, 1)
-        self.conv_block1_kernel_9_loudness = ConvBlock(in_channels=1, out_channels=16,
-                                              kernel_size=kernel_size, padding=(0, 0))
-        self.conv_block2_kernel_9_loudness = ConvBlock_dilation(in_channels=16, out_channels=32, kernel_size=kernel_size,
-                                                       padding=(0, 0), dilation=(2, 1))
-        self.conv_block3_kernel_9_loudness = ConvBlock_dilation(in_channels=32, out_channels=64, kernel_size=kernel_size,
-                                                       padding=(0, 0), dilation=(3, 1))
+        self.conv_block1_kernel_9_loudness = ConvBlock(
+            in_channels=1, out_channels=16, kernel_size=kernel_size, padding=(0, 0)
+        )
+        self.conv_block2_kernel_9_loudness = ConvBlock_dilation(
+            in_channels=16,
+            out_channels=32,
+            kernel_size=kernel_size,
+            padding=(0, 0),
+            dilation=(2, 1),
+        )
+        self.conv_block3_kernel_9_loudness = ConvBlock_dilation(
+            in_channels=32,
+            out_channels=64,
+            kernel_size=kernel_size,
+            padding=(0, 0),
+            dilation=(3, 1),
+        )
 
         # --------------------------------------------------------------------------------------------------------------
 
@@ -242,18 +346,33 @@ class SoundAQnet(nn.Module):
 
         self.embedding_h = nn.Linear(in_dim, hidden_dim)
         self.embedding_e = nn.Linear(in_dim_edge, hidden_dim)
-        self.layers = nn.ModuleList([GatedGCNLayer(hidden_dim, hidden_dim, dropout,
-                                                   self.batch_norm, self.residual,
-                                                   num_nodes=max_node_num) for _ in range(n_layers - 1)])
-        self.layers.append(GatedGCNLayer(hidden_dim, out_dim, dropout, self.batch_norm, self.residual,
-                                         num_nodes=max_node_num))
+        self.layers = nn.ModuleList(
+            [
+                GatedGCNLayer(
+                    hidden_dim,
+                    hidden_dim,
+                    dropout,
+                    self.batch_norm,
+                    self.residual,
+                    num_nodes=max_node_num,
+                )
+                for _ in range(n_layers - 1)
+            ]
+        )
+        self.layers.append(
+            GatedGCNLayer(
+                hidden_dim, out_dim, dropout, self.batch_norm, self.residual, num_nodes=max_node_num
+            )
+        )
 
         self.max_node_num = max_node_num
 
         # ----------------------------------------------------------------------------------------------------
 
         graph_dim = 512
-        self.fc_all_nodes_to_classification_embeddings = nn.Linear(max_node_num * node_emb_dim, graph_dim, bias=True)
+        self.fc_all_nodes_to_classification_embeddings = nn.Linear(
+            max_node_num * node_emb_dim, graph_dim, bias=True
+        )
 
         self.fc_residual_mel_k3 = nn.Linear(2 * node_emb_dim, node_emb_dim, bias=True)
         self.fc_residual_mel_k5 = nn.Linear(2 * node_emb_dim, node_emb_dim, bias=True)
@@ -343,19 +462,19 @@ class SoundAQnet(nn.Module):
         init_layer(self.fc_final_monotonous)
 
     def mean_max(self, x):
-        (x1, _) = torch.max(x, dim=2)
+        x1, _ = torch.max(x, dim=2)
         x2 = torch.mean(x, dim=2)
         x = x1 + x2
         return x
 
     def forward(self, input, batch_x_loudness):
         # torch.Size([32, 3001, 64])
-        (_, seq_len, mel_bins) = input.shape
+        _, seq_len, mel_bins = input.shape
         x = input.view(-1, 1, seq_len, mel_bins)
-        '''(samples_num, feature_maps, time_steps, freq_num)'''
+        """(samples_num, feature_maps, time_steps, freq_num)"""
 
         # torch.Size([32, 15000, 1])
-        (_, seq_len_loudness, mel_bins_loudness) = batch_x_loudness.shape
+        _, seq_len_loudness, mel_bins_loudness = batch_x_loudness.shape
         batch_x_loudness = batch_x_loudness.view(-1, 1, seq_len_loudness, mel_bins_loudness)
 
         if self.batchnormal:
@@ -365,52 +484,52 @@ class SoundAQnet(nn.Module):
 
         batch_x = x
 
-        x_k_3 = self.conv_block1(batch_x, pool_size=(2, 2), pool_type='avg')
+        x_k_3 = self.conv_block1(batch_x, pool_size=(2, 2), pool_type="avg")
         x_k_3 = F.dropout(x_k_3, p=0.2, training=self.training)
 
-        x_k_3 = self.conv_block2(x_k_3, pool_size=(2, 2), pool_type='avg')
+        x_k_3 = self.conv_block2(x_k_3, pool_size=(2, 2), pool_type="avg")
         x_k_3 = F.dropout(x_k_3, p=0.2, training=self.training)
 
-        x_k_3 = self.conv_block3(x_k_3, pool_size=(2, 2), pool_type='avg')
+        x_k_3 = self.conv_block3(x_k_3, pool_size=(2, 2), pool_type="avg")
         x_k_3 = F.dropout(x_k_3, p=0.2, training=self.training)
 
         x_k_3 = self.mean_max(x_k_3)
         x_k_3_mel = F.relu_(self.k_3_freq_to_1(x_k_3))[:, :, 0][None, :, :]
 
         # kernel 5 -----------------------------------------------------------------------------------------------------
-        x_k_5 = self.conv_block1_kernel_5(batch_x, pool_size=(2, 2), pool_type='avg')
+        x_k_5 = self.conv_block1_kernel_5(batch_x, pool_size=(2, 2), pool_type="avg")
         x_k_5 = F.dropout(x_k_5, p=0.2, training=self.training)
 
-        x_k_5 = self.conv_block2_kernel_5(x_k_5, pool_size=(2, 2), pool_type='avg')
+        x_k_5 = self.conv_block2_kernel_5(x_k_5, pool_size=(2, 2), pool_type="avg")
         x_k_5 = F.dropout(x_k_5, p=0.2, training=self.training)
 
-        x_k_5 = self.conv_block3_kernel_5(x_k_5, pool_size=(2, 2), pool_type='avg')
+        x_k_5 = self.conv_block3_kernel_5(x_k_5, pool_size=(2, 2), pool_type="avg")
         x_k_5 = F.dropout(x_k_5, p=0.2, training=self.training)
 
         x_k_5 = self.mean_max(x_k_5)
         x_k_5_mel = F.relu_(self.k_5_freq_to_1(x_k_5))[:, :, 0][None, :, :]
 
         # kernel 7 -----------------------------------------------------------------------------------------------------
-        x_k_7 = self.conv_block1_kernel_7(batch_x, pool_size=(2, 2), pool_type='avg')
+        x_k_7 = self.conv_block1_kernel_7(batch_x, pool_size=(2, 2), pool_type="avg")
         x_k_7 = F.dropout(x_k_7, p=0.2, training=self.training)
 
-        x_k_7 = self.conv_block2_kernel_7(x_k_7, pool_size=(2, 2), pool_type='avg')
+        x_k_7 = self.conv_block2_kernel_7(x_k_7, pool_size=(2, 2), pool_type="avg")
         x_k_7 = F.dropout(x_k_7, p=0.2, training=self.training)
 
-        x_k_7 = self.conv_block3_kernel_7(x_k_7, pool_size=(2, 2), pool_type='avg')
+        x_k_7 = self.conv_block3_kernel_7(x_k_7, pool_size=(2, 2), pool_type="avg")
         x_k_7 = F.dropout(x_k_7, p=0.2, training=self.training)
 
         x_k_7 = self.mean_max(x_k_7)
         x_k_7_mel = F.relu_(self.k_7_freq_to_1(x_k_7))[:, :, 0][None, :, :]
 
         # kernel 9 -----------------------------------------------------------------------------------------------------
-        x_k_9 = self.conv_block1_kernel_9(batch_x, pool_size=(2, 2), pool_type='avg')
+        x_k_9 = self.conv_block1_kernel_9(batch_x, pool_size=(2, 2), pool_type="avg")
         x_k_9 = F.dropout(x_k_9, p=0.2, training=self.training)
 
-        x_k_9 = self.conv_block2_kernel_9(x_k_9, pool_size=(2, 2), pool_type='avg')
+        x_k_9 = self.conv_block2_kernel_9(x_k_9, pool_size=(2, 2), pool_type="avg")
         x_k_9 = F.dropout(x_k_9, p=0.2, training=self.training)
 
-        x_k_9 = self.conv_block3_kernel_9(x_k_9, pool_size=(2, 2), pool_type='avg')
+        x_k_9 = self.conv_block3_kernel_9(x_k_9, pool_size=(2, 2), pool_type="avg")
         x_k_9 = F.dropout(x_k_9, p=0.2, training=self.training)
 
         x_k_9 = self.mean_max(x_k_9)
@@ -422,59 +541,61 @@ class SoundAQnet(nn.Module):
         #  ----------------------------- loudness ----------------------------------------------------------------------
         batch_x = batch_x_loudness
 
-        x_k_3 = self.conv_block1_loudness(batch_x, pool_size=(2, 1), pool_type='avg')
+        x_k_3 = self.conv_block1_loudness(batch_x, pool_size=(2, 1), pool_type="avg")
         x_k_3 = F.dropout(x_k_3, p=0.2, training=self.training)
 
-        x_k_3 = self.conv_block2_loudness(x_k_3, pool_size=(2, 1), pool_type='avg')
+        x_k_3 = self.conv_block2_loudness(x_k_3, pool_size=(2, 1), pool_type="avg")
         x_k_3 = F.dropout(x_k_3, p=0.2, training=self.training)
 
-        x_k_3 = self.conv_block3_loudness(x_k_3, pool_size=(2, 1), pool_type='avg')
+        x_k_3 = self.conv_block3_loudness(x_k_3, pool_size=(2, 1), pool_type="avg")
         x_k_3 = F.dropout(x_k_3, p=0.2, training=self.training)
 
         x_k_3 = self.mean_max(x_k_3)
         x_k_3_loudness = x_k_3[:, :, 0][None, :, :]
 
         # kernel 5 -----------------------------------------------------------------------------------------------------
-        x_k_5 = self.conv_block1_kernel_5_loudness(batch_x, pool_size=(2, 1), pool_type='avg')
+        x_k_5 = self.conv_block1_kernel_5_loudness(batch_x, pool_size=(2, 1), pool_type="avg")
         x_k_5 = F.dropout(x_k_5, p=0.2, training=self.training)
 
-        x_k_5 = self.conv_block2_kernel_5_loudness(x_k_5, pool_size=(2, 1), pool_type='avg')
+        x_k_5 = self.conv_block2_kernel_5_loudness(x_k_5, pool_size=(2, 1), pool_type="avg")
         x_k_5 = F.dropout(x_k_5, p=0.2, training=self.training)
 
-        x_k_5 = self.conv_block3_kernel_5_loudness(x_k_5, pool_size=(2, 1), pool_type='avg')
+        x_k_5 = self.conv_block3_kernel_5_loudness(x_k_5, pool_size=(2, 1), pool_type="avg")
         x_k_5 = F.dropout(x_k_5, p=0.2, training=self.training)
 
         x_k_5 = self.mean_max(x_k_5)
         x_k_5_loudness = x_k_5[:, :, 0][None, :, :]
 
         # kernel 7 -----------------------------------------------------------------------------------------------------
-        x_k_7 = self.conv_block1_kernel_7_loudness(batch_x, pool_size=(2, 1), pool_type='avg')
+        x_k_7 = self.conv_block1_kernel_7_loudness(batch_x, pool_size=(2, 1), pool_type="avg")
         x_k_7 = F.dropout(x_k_7, p=0.2, training=self.training)
 
-        x_k_7 = self.conv_block2_kernel_7_loudness(x_k_7, pool_size=(2, 1), pool_type='avg')
+        x_k_7 = self.conv_block2_kernel_7_loudness(x_k_7, pool_size=(2, 1), pool_type="avg")
         x_k_7 = F.dropout(x_k_7, p=0.2, training=self.training)
 
-        x_k_7 = self.conv_block3_kernel_7_loudness(x_k_7, pool_size=(2, 1), pool_type='avg')
+        x_k_7 = self.conv_block3_kernel_7_loudness(x_k_7, pool_size=(2, 1), pool_type="avg")
         x_k_7 = F.dropout(x_k_7, p=0.2, training=self.training)
 
         x_k_7 = self.mean_max(x_k_7)
         x_k_7_loudness = x_k_7[:, :, 0][None, :, :]
 
         # kernel 9 -----------------------------------------------------------------------------------------------------
-        x_k_9 = self.conv_block1_kernel_9_loudness(batch_x, pool_size=(2, 1), pool_type='avg')
+        x_k_9 = self.conv_block1_kernel_9_loudness(batch_x, pool_size=(2, 1), pool_type="avg")
         x_k_9 = F.dropout(x_k_9, p=0.2, training=self.training)
 
-        x_k_9 = self.conv_block2_kernel_9_loudness(x_k_9, pool_size=(2, 1), pool_type='avg')
+        x_k_9 = self.conv_block2_kernel_9_loudness(x_k_9, pool_size=(2, 1), pool_type="avg")
         x_k_9 = F.dropout(x_k_9, p=0.2, training=self.training)
 
-        x_k_9 = self.conv_block3_kernel_9_loudness(x_k_9, pool_size=(2, 1), pool_type='avg')
+        x_k_9 = self.conv_block3_kernel_9_loudness(x_k_9, pool_size=(2, 1), pool_type="avg")
         x_k_9 = F.dropout(x_k_9, p=0.2, training=self.training)
 
         x_k_9 = self.mean_max(x_k_9)
         x_k_9_loudness = x_k_9[:, :, 0][None, :, :]
 
         # -------------------------------------------------------------------------------------------------------------
-        event_embs_loudness = torch.cat([x_k_3_loudness, x_k_5_loudness, x_k_7_loudness, x_k_9_loudness], dim=0)
+        event_embs_loudness = torch.cat(
+            [x_k_3_loudness, x_k_5_loudness, x_k_7_loudness, x_k_9_loudness], dim=0
+        )
 
         event_embs = torch.cat([event_embs_log_mel, event_embs_loudness], dim=0)
         ##################################### gnn ####################################################################
@@ -501,17 +622,36 @@ class SoundAQnet(nn.Module):
         x = h.view(B, N, self.out_dim)  # [batch, num_nodes, out_dim]
         ######################################## event graph ##################################################
 
-        mel_k3 = F.gelu(self.fc_residual_mel_k3(torch.cat([x_k_3_mel, x[:, 0, :][None, :]], dim=-1)))
-        mel_k5 = F.gelu(self.fc_residual_mel_k5(torch.cat([x_k_5_mel, x[:, 1, :][None, :]], dim=-1)))
-        mel_k7 = F.gelu(self.fc_residual_mel_k7(torch.cat([x_k_7_mel, x[:, 2, :][None, :]], dim=-1)))
-        mel_k9 = F.gelu(self.fc_residual_mel_k9(torch.cat([x_k_9_mel, x[:, 3, :][None, :]], dim=-1)))
+        mel_k3 = F.gelu(
+            self.fc_residual_mel_k3(torch.cat([x_k_3_mel, x[:, 0, :][None, :]], dim=-1))
+        )
+        mel_k5 = F.gelu(
+            self.fc_residual_mel_k5(torch.cat([x_k_5_mel, x[:, 1, :][None, :]], dim=-1))
+        )
+        mel_k7 = F.gelu(
+            self.fc_residual_mel_k7(torch.cat([x_k_7_mel, x[:, 2, :][None, :]], dim=-1))
+        )
+        mel_k9 = F.gelu(
+            self.fc_residual_mel_k9(torch.cat([x_k_9_mel, x[:, 3, :][None, :]], dim=-1))
+        )
 
-        loudness_k3 = F.gelu(self.fc_residual_loudness_k3(torch.cat([x_k_3_loudness, x[:, 4, :][None, :]], dim=-1)))
-        loudness_k5 = F.gelu(self.fc_residual_loudness_k5(torch.cat([x_k_5_loudness, x[:, 5, :][None, :]], dim=-1)))
-        loudness_k7 = F.gelu(self.fc_residual_loudness_k7(torch.cat([x_k_7_loudness, x[:, 6, :][None, :]], dim=-1)))
-        loudness_k9 = F.gelu(self.fc_residual_loudness_k9(torch.cat([x_k_9_loudness, x[:, 7, :][None, :]], dim=-1)))
+        loudness_k3 = F.gelu(
+            self.fc_residual_loudness_k3(torch.cat([x_k_3_loudness, x[:, 4, :][None, :]], dim=-1))
+        )
+        loudness_k5 = F.gelu(
+            self.fc_residual_loudness_k5(torch.cat([x_k_5_loudness, x[:, 5, :][None, :]], dim=-1))
+        )
+        loudness_k7 = F.gelu(
+            self.fc_residual_loudness_k7(torch.cat([x_k_7_loudness, x[:, 6, :][None, :]], dim=-1))
+        )
+        loudness_k9 = F.gelu(
+            self.fc_residual_loudness_k9(torch.cat([x_k_9_loudness, x[:, 7, :][None, :]], dim=-1))
+        )
 
-        kernels_embs = torch.cat([mel_k3, mel_k5, mel_k7, mel_k9, loudness_k3, loudness_k5, loudness_k7, loudness_k9], dim=0)
+        kernels_embs = torch.cat(
+            [mel_k3, mel_k5, mel_k7, mel_k9, loudness_k3, loudness_k5, loudness_k7, loudness_k9],
+            dim=0,
+        )
 
         kernels_embs = kernels_embs.transpose(0, 1)
 
@@ -551,4 +691,17 @@ class SoundAQnet(nn.Module):
         annoying = self.fc_final_annoying(annoying_embeddings)
         monotonous = self.fc_final_monotonous(monotonous_embeddings)
 
-        return scene, event, ISOPls, ISOEvs, pleasant, eventful, chaotic, vibrant, uneventful, calm, annoying, monotonous
+        return (
+            scene,
+            event,
+            ISOPls,
+            ISOEvs,
+            pleasant,
+            eventful,
+            chaotic,
+            vibrant,
+            uneventful,
+            calm,
+            annoying,
+            monotonous,
+        )

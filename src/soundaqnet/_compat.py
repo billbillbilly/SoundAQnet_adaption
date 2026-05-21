@@ -26,8 +26,8 @@ import sys
 import warnings
 from typing import Optional
 
-
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def _parse_version(v: str) -> tuple[int, ...]:
     """Convert '2.1.0' → (2, 1, 0).  Ignores pre-release suffixes."""
@@ -54,10 +54,12 @@ def _check_max(pkg: str, max_excl: str, installed: str) -> None:
 
 # ── torch / torchaudio / torchvision ─────────────────────────────────────────
 
+
 def check_torch() -> Optional[str]:
     """Return the installed torch version string, or None if not found."""
     try:
         import torch
+
         ver = torch.__version__
     except ImportError:
         warnings.warn(
@@ -81,6 +83,7 @@ def check_torch() -> Optional[str]:
 def check_torchaudio() -> None:
     try:
         import torchaudio
+
         ver = torchaudio.__version__
         if _parse_version(ver) < _parse_version("2.1.0"):
             warnings.warn(
@@ -99,6 +102,7 @@ def check_torchaudio() -> None:
 def check_torchvision() -> None:
     try:
         import torchvision
+
         ver = torchvision.__version__
         if _parse_version(ver) < _parse_version("0.16.0"):
             warnings.warn(
@@ -116,15 +120,18 @@ def check_torchvision() -> None:
 
 # ── numpy ─────────────────────────────────────────────────────────────────────
 
+
 def check_numpy() -> None:
     try:
         import numpy as np
+
         _check_max("numpy", "2.0.0", np.__version__)
     except ImportError:
-        pass   # numpy is pulled in by other deps; ImportError is unexpected
+        pass  # numpy is pulled in by other deps; ImportError is unexpected
 
 
 # ── platform (ISO 532-1 loudness) ─────────────────────────────────────────────
+
 
 def check_loudness_platform() -> None:
     """Warn if running on macOS/Linux without mosqito installed."""
@@ -142,6 +149,7 @@ def check_loudness_platform() -> None:
 
 
 # ── main entry point ──────────────────────────────────────────────────────────
+
 
 def run_all_checks() -> None:
     """Run all compatibility checks.  Called once at package import time."""

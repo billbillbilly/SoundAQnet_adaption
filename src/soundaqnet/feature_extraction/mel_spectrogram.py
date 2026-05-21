@@ -25,17 +25,17 @@ Parallelism
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
-import argparse
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-import numpy as np
 import librosa
+import numpy as np
 import torch
-from torchlibrosa.stft import Spectrogram, LogmelFilterBank
+from torchlibrosa.stft import LogmelFilterBank, Spectrogram
 from tqdm import tqdm
 
 # Audio formats supported as input — librosa handles all of these.
@@ -43,6 +43,7 @@ SUPPORTED_EXTS = (".wav", ".mp3", ".flac", ".ogg", ".aiff", ".aif", ".m4a", ".op
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def create_folder(fd: str) -> None:
     if not os.path.exists(fd):
@@ -54,8 +55,7 @@ def listFnames(dirName: str) -> list[str]:
     fnames = []
     for rootDir, _, filesList in os.walk(dirName):
         fnames += [
-            os.path.join(rootDir, f) for f in filesList
-            if Path(f).suffix.lower() in SUPPORTED_EXTS
+            os.path.join(rootDir, f) for f in filesList if Path(f).suffix.lower() in SUPPORTED_EXTS
         ]
     return fnames
 
@@ -69,9 +69,9 @@ def pad_or_truncate(x: np.ndarray, audio_length: int) -> np.ndarray:
 
 
 def move_data_to_device(x: np.ndarray, device: torch.device) -> torch.Tensor:
-    if 'float' in str(x.dtype):
+    if "float" in str(x.dtype):
         x_t = torch.Tensor(x)
-    elif 'int' in str(x.dtype):
+    elif "int" in str(x.dtype):
         x_t = torch.LongTensor(x)
     else:
         return x  # type: ignore[return-value]
@@ -83,10 +83,10 @@ def move_data_to_device(x: np.ndarray, device: torch.device) -> torch.Tensor:
 # workers never mutate shared module state.  Extractors are cheap to create
 # (they are fixed linear filters) and reused across all files in a thread.
 
-_MEL_BINS    = 64
+_MEL_BINS = 64
 _SAMPLE_RATE = 16_000
 _WINDOW_SIZE = 512
-_HOP_SIZE    = 160
+_HOP_SIZE = 160
 
 _thread_local_mel = threading.local()
 
@@ -98,13 +98,24 @@ def _get_thread_extractors(device: torch.device) -> tuple:
     """
     if getattr(_thread_local_mel, "device", None) != device:
         _thread_local_mel.spec_ext = Spectrogram(
-            n_fft=_WINDOW_SIZE, hop_length=_HOP_SIZE, win_length=_WINDOW_SIZE,
-            window="hann", center=True, pad_mode="reflect", freeze_parameters=True,
+            n_fft=_WINDOW_SIZE,
+            hop_length=_HOP_SIZE,
+            win_length=_WINDOW_SIZE,
+            window="hann",
+            center=True,
+            pad_mode="reflect",
+            freeze_parameters=True,
         ).to(device)
         _thread_local_mel.mel_ext = LogmelFilterBank(
-            sr=_SAMPLE_RATE, n_fft=_WINDOW_SIZE, n_mels=_MEL_BINS,
-            fmin=50, fmax=_SAMPLE_RATE // 2,
-            ref=1.0, amin=1e-10, top_db=None, freeze_parameters=True,
+            sr=_SAMPLE_RATE,
+            n_fft=_WINDOW_SIZE,
+            n_mels=_MEL_BINS,
+            fmin=50,
+            fmax=_SAMPLE_RATE // 2,
+            ref=1.0,
+            amin=1e-10,
+            top_db=None,
+            freeze_parameters=True,
         ).to(device)
         _thread_local_mel.device = device
     return _thread_local_mel.spec_ext, _thread_local_mel.mel_ext
@@ -115,10 +126,10 @@ def _get_thread_extractors(device: torch.device) -> tuple:
 # num_workers == 1.  Protected with a lock so it remains safe if the caller
 # inadvertently shares the module across threads.
 
-_MAIN_LOCK             = threading.Lock()
+_MAIN_LOCK = threading.Lock()
 _spectrogram_extractor = None
-_logmel_extractor      = None
-_extractor_device      = None
+_logmel_extractor = None
+_extractor_device = None
 
 
 def _get_extractors(device: "torch.device | None" = None) -> tuple:
@@ -136,13 +147,24 @@ def _get_extractors(device: "torch.device | None" = None) -> tuple:
     with _MAIN_LOCK:
         if _spectrogram_extractor is None or device != _extractor_device:
             _spectrogram_extractor = Spectrogram(
-                n_fft=_WINDOW_SIZE, hop_length=_HOP_SIZE, win_length=_WINDOW_SIZE,
-                window="hann", center=True, pad_mode="reflect", freeze_parameters=True,
+                n_fft=_WINDOW_SIZE,
+                hop_length=_HOP_SIZE,
+                win_length=_WINDOW_SIZE,
+                window="hann",
+                center=True,
+                pad_mode="reflect",
+                freeze_parameters=True,
             ).to(device)
             _logmel_extractor = LogmelFilterBank(
-                sr=_SAMPLE_RATE, n_fft=_WINDOW_SIZE, n_mels=_MEL_BINS,
-                fmin=50, fmax=_SAMPLE_RATE // 2,
-                ref=1.0, amin=1e-10, top_db=None, freeze_parameters=True,
+                sr=_SAMPLE_RATE,
+                n_fft=_WINDOW_SIZE,
+                n_mels=_MEL_BINS,
+                fmin=50,
+                fmax=_SAMPLE_RATE // 2,
+                ref=1.0,
+                amin=1e-10,
+                top_db=None,
+                freeze_parameters=True,
             ).to(device)
             _extractor_device = device
 
@@ -150,6 +172,7 @@ def _get_extractors(device: "torch.device | None" = None) -> tuple:
 
 
 # ── extraction ────────────────────────────────────────────────────────────────
+
 
 def _extract_one(
     audio_path: str,
@@ -164,7 +187,7 @@ def _extract_one(
 
     with torch.no_grad():
         spectrogram = spec_ext(x)
-        logmel      = mel_ext(spectrogram)          # (1, 1, frames, mel_bins)
+        logmel = mel_ext(spectrogram)  # (1, 1, frames, mel_bins)
 
     arr = logmel[0, 0].cpu().numpy().astype(np.float32)
 
@@ -192,10 +215,11 @@ def run_jobs(input_dir: str, output_dir: str, num_workers: int = 4) -> None:
     print(f"Found {len(audio_files)} audio files ({', '.join(SUPPORTED_EXTS)})")
 
     # Skip already-completed outputs
-    audio_files = [f for f in audio_files
-                   if not os.path.exists(
-                       os.path.join(output_dir, Path(f).stem + ".npy")
-                   )]
+    audio_files = [
+        f
+        for f in audio_files
+        if not os.path.exists(os.path.join(output_dir, Path(f).stem + ".npy"))
+    ]
     print(f"Skipping already-complete files; {len(audio_files)} remaining")
 
     if not audio_files:
@@ -207,10 +231,7 @@ def run_jobs(input_dir: str, output_dir: str, num_workers: int = 4) -> None:
     else:
         print(f"Using {num_workers} worker threads.")
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = {
-                executor.submit(_extract_one, f, output_dir, device): f
-                for f in audio_files
-            }
+            futures = {executor.submit(_extract_one, f, output_dir, device): f for f in audio_files}
             with tqdm(total=len(futures), desc="Extracting mel") as pbar:
                 for future in as_completed(futures):
                     try:
@@ -221,6 +242,7 @@ def run_jobs(input_dir: str, output_dir: str, num_workers: int = 4) -> None:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def extract_mel_from_file(
     audio_path: "str | Path | list[str | Path]",
@@ -272,7 +294,7 @@ def extract_mel_from_file(
         # df = model.predict(mel_dir="mel_features/", loudness_dir="loudness/")
     """
     single = isinstance(audio_path, (str, Path))
-    paths  = [Path(audio_path)] if single else [Path(p) for p in audio_path]
+    paths = [Path(audio_path)] if single else [Path(p) for p in audio_path]
 
     if device is None:
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -319,8 +341,8 @@ def extract_mel_from_file(
 
 
 def extract_mel(
-    input_dir:   "str | Path",
-    output_dir:  "str | Path",
+    input_dir: "str | Path",
+    output_dir: "str | Path",
     num_workers: int = 4,
 ) -> None:
     """Extract log-mel spectrograms for every audio file in *input_dir*.
@@ -339,17 +361,19 @@ def extract_mel(
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
+
 def main() -> int:
     """CLI: soundaqnet-extract-mel"""
-    parser = argparse.ArgumentParser(
-        description="Extract log-mel spectrograms from audio files."
+    parser = argparse.ArgumentParser(description="Extract log-mel spectrograms from audio files.")
+    parser.add_argument(
+        "--input_dir", required=True, help="Directory of audio files (searched recursively)."
     )
-    parser.add_argument("--input_dir",   required=True,
-                        help="Directory of audio files (searched recursively).")
-    parser.add_argument("--output_dir",  default="Dataset_mel",
-                        help="Directory for .npy output files.")
-    parser.add_argument("--num_workers", type=int, default=4,
-                        help="Number of parallel worker threads (default 4).")
+    parser.add_argument(
+        "--output_dir", default="Dataset_mel", help="Directory for .npy output files."
+    )
+    parser.add_argument(
+        "--num_workers", type=int, default=4, help="Number of parallel worker threads (default 4)."
+    )
     args = parser.parse_args()
 
     run_jobs(args.input_dir, args.output_dir, num_workers=args.num_workers)

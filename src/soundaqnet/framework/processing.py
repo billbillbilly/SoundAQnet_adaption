@@ -1,14 +1,16 @@
-import time, os
+import os
+import time
+
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-import numpy as np
-
-from soundaqnet.framework.utilities import create_folder
-from soundaqnet.framework.models_pytorch import move_data_to_gpu
-from soundaqnet.framework import config
 from sklearn import metrics
+
+from soundaqnet.framework import config
 from soundaqnet.framework.earlystop import EarlyStopping
+from soundaqnet.framework.models_pytorch import move_data_to_gpu
+from soundaqnet.framework.utilities import create_folder
 
 
 def forward_for_LLM(model, generate_func, cuda):
@@ -20,7 +22,7 @@ def forward_for_LLM(model, generate_func, cuda):
     audio_names = []
     # Evaluate on mini-batch
     for num, data in enumerate(generate_func):
-        (batch_x, batch_x_loudness, names) = data
+        batch_x, batch_x_loudness, names = data
         audio_names.append(names)
 
         batch_x = move_data_to_gpu(batch_x, cuda)
@@ -28,8 +30,20 @@ def forward_for_LLM(model, generate_func, cuda):
 
         model.eval()
         with torch.no_grad():
-            scene, event, ISOPls, ISOEvs, \
-            pleasant, eventful, chaotic, vibrant, uneventful, calm, annoying, monotonous = model(batch_x, batch_x_loudness)
+            (
+                scene,
+                event,
+                ISOPls,
+                ISOEvs,
+                pleasant,
+                eventful,
+                chaotic,
+                vibrant,
+                uneventful,
+                calm,
+                annoying,
+                monotonous,
+            ) = model(batch_x, batch_x_loudness)
 
             event = F.sigmoid(event)
 
@@ -50,22 +64,22 @@ def forward_for_LLM(model, generate_func, cuda):
 
     result = {}
 
-    result['audio_names'] = np.concatenate(audio_names, axis=0)
+    result["audio_names"] = np.concatenate(audio_names, axis=0)
 
-    result['output_scene'] = np.concatenate(output_scene, axis=0)
-    result['output_event'] = np.concatenate(output_event, axis=0)
+    result["output_scene"] = np.concatenate(output_scene, axis=0)
+    result["output_event"] = np.concatenate(output_event, axis=0)
 
-    result['output_ISOPls'] = np.concatenate(output_ISOPls, axis=0)
-    result['output_ISOEvs'] = np.concatenate(output_ISOEvs, axis=0)
+    result["output_ISOPls"] = np.concatenate(output_ISOPls, axis=0)
+    result["output_ISOEvs"] = np.concatenate(output_ISOEvs, axis=0)
 
-    result['output_pleasant'] = np.concatenate(output_pleasant, axis=0)
-    result['output_eventful'] = np.concatenate(output_eventful, axis=0)
-    result['output_chaotic'] = np.concatenate(output_chaotic, axis=0)
-    result['output_vibrant'] = np.concatenate(output_vibrant, axis=0)
-    result['output_uneventful'] = np.concatenate(output_uneventful, axis=0)
-    result['output_calm'] = np.concatenate(output_calm, axis=0)
-    result['output_annoying'] = np.concatenate(output_annoying, axis=0)
-    result['output_monotonous'] = np.concatenate(output_monotonous, axis=0)
+    result["output_pleasant"] = np.concatenate(output_pleasant, axis=0)
+    result["output_eventful"] = np.concatenate(output_eventful, axis=0)
+    result["output_chaotic"] = np.concatenate(output_chaotic, axis=0)
+    result["output_vibrant"] = np.concatenate(output_vibrant, axis=0)
+    result["output_uneventful"] = np.concatenate(output_uneventful, axis=0)
+    result["output_calm"] = np.concatenate(output_calm, axis=0)
+    result["output_annoying"] = np.concatenate(output_annoying, axis=0)
+    result["output_monotonous"] = np.concatenate(output_monotonous, axis=0)
 
     return result
 
@@ -108,48 +122,75 @@ def cal_softmax_classification_accuracy(target, predict, average=None, eps=1e-8)
 
     accuracy = correctness / (total + eps)
 
-    if average == 'each_class':
+    if average == "each_class":
         return accuracy
 
-    elif average == 'macro':
+    elif average == "macro":
         return np.mean(accuracy)
 
     else:
-        raise Exception('Incorrect average!')
+        raise Exception("Incorrect average!")
 
 
-def Training_early_stopping(generator, model, models_dir, batch_size, monitor, cuda=config.cuda,
-                            epochs=config.epochs, patience=10, lr_init=config.lr_init):
+def Training_early_stopping(
+    generator,
+    model,
+    models_dir,
+    batch_size,
+    monitor,
+    cuda=config.cuda,
+    epochs=config.epochs,
+    patience=10,
+    lr_init=config.lr_init,
+):
     create_folder(models_dir)
 
     from soundaqnet.framework.AutomaticWeightedLoss import AutomaticWeightedLoss
+
     awl = AutomaticWeightedLoss(12)
 
-    optimizer = optim.Adam([
-                {'params': model.parameters()},
-                {'params': awl.parameters(), 'weight_decay': 0}
-            ], lr=lr_init, betas=(0.9, 0.999), eps=1e-08)
+    optimizer = optim.Adam(
+        [{"params": model.parameters()}, {"params": awl.parameters(), "weight_decay": 0}],
+        lr=lr_init,
+        betas=(0.9, 0.999),
+        eps=1e-08,
+    )
 
     mse_loss = torch.nn.MSELoss()
     bce_loss = torch.nn.BCELoss()
 
     sample_num = len(generator.train_scene_labels)
     one_epoch = int(sample_num / batch_size)
-    print('one_epoch: ', one_epoch, 'iteration is 1 epoch')
-    print('really batch size: ', batch_size)
+    print("one_epoch: ", one_epoch, "iteration is 1 epoch")
+    print("really batch size: ", batch_size)
     check_iter = one_epoch
-    print('validating every: ', check_iter, ' iteration')
+    print("validating every: ", check_iter, " iteration")
 
     # initialize the early_stopping object
-    model_path = os.path.join(models_dir, 'early_stopping_' + monitor + config.endswith)
-    early_stopping_mse_loss = EarlyStopping(model_path, decrease=True, patience=patience, verbose=True)
+    model_path = os.path.join(models_dir, "early_stopping_" + monitor + config.endswith)
+    early_stopping_mse_loss = EarlyStopping(
+        model_path, decrease=True, patience=patience, verbose=True
+    )
 
     training_start_time = time.time()
     for iteration, all_data in enumerate(generator.generate_train()):
 
-        (batch_x, batch_x_loudness, batch_scene, batch_sound_masker, batch_ISOPls, batch_ISOEvs,
-         batch_pleasant, batch_eventful, batch_chaotic, batch_vibrant,
-         batch_uneventful, batch_calm, batch_annoying, batch_monotonous) = all_data
+        (
+            batch_x,
+            batch_x_loudness,
+            batch_scene,
+            batch_sound_masker,
+            batch_ISOPls,
+            batch_ISOEvs,
+            batch_pleasant,
+            batch_eventful,
+            batch_chaotic,
+            batch_vibrant,
+            batch_uneventful,
+            batch_calm,
+            batch_annoying,
+            batch_monotonous,
+        ) = all_data
 
         batch_x = move_data_to_gpu(batch_x, cuda)
         batch_x_loudness = move_data_to_gpu(batch_x_loudness, cuda)
@@ -173,8 +214,20 @@ def Training_early_stopping(generator, model, models_dir, batch_size, monitor, c
         model.train()
         optimizer.zero_grad()
 
-        scene, event, ISOPls, ISOEvs, \
-        pleasant, eventful, chaotic, vibrant, uneventful, calm, annoying, monotonous = model(batch_x, batch_x_loudness)
+        (
+            scene,
+            event,
+            ISOPls,
+            ISOEvs,
+            pleasant,
+            eventful,
+            chaotic,
+            vibrant,
+            uneventful,
+            calm,
+            annoying,
+            monotonous,
+        ) = model(batch_x, batch_x_loudness)
 
         loss_scene = F.nll_loss(F.log_softmax(scene, dim=-1), batch_scene)
         loss_event = bce_loss(F.sigmoid(event), batch_sound_masker)
@@ -191,77 +244,133 @@ def Training_early_stopping(generator, model, models_dir, batch_size, monitor, c
         loss_annoying = mse_loss(annoying, batch_annoying)
         loss_monotonous = mse_loss(monotonous, batch_monotonous)
 
-        loss_list = [loss_scene, loss_event,
-                     loss_ISOPls, loss_ISOEvs,
-                     loss_pleasant, loss_eventful, loss_chaotic, loss_vibrant,
-                     loss_uneventful, loss_calm, loss_annoying, loss_monotonous]
-        alpha_list = [1, 1, 0.5, 0.5,
-                      0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, ]
+        loss_list = [
+            loss_scene,
+            loss_event,
+            loss_ISOPls,
+            loss_ISOEvs,
+            loss_pleasant,
+            loss_eventful,
+            loss_chaotic,
+            loss_vibrant,
+            loss_uneventful,
+            loss_calm,
+            loss_annoying,
+            loss_monotonous,
+        ]
+        alpha_list = [
+            1,
+            1,
+            0.5,
+            0.5,
+            0.5,
+            0.5,
+            0.5,
+            0.5,
+            0.5,
+            0.5,
+            0.5,
+            0.5,
+        ]
 
         loss_common, loss_list = awl(loss_list, alpha_list)
         loss_common.backward()
         optimizer.step()
 
         Epoch = iteration / one_epoch
-        print('scene: %.3f' % float(loss_list[0]), 'event: %.3f' % float(loss_list[1]),
-              'ISOPls: %.3f' % float(loss_list[2]), 'ISOEvs: %.3f' % float(loss_list[3]),
-              'plea: %.3f' % float(loss_list[4]), 'eventf: %.3f' % float(loss_list[5]),
-              'chao: %.3f' % float(loss_list[6]), 'vib: %.3f' % float(loss_list[7]),
-              'uneve: %.3f' % float(loss_list[8]), 'calm: %.3f' % float(loss_list[9]),
-              'ann: %.3f' % float(loss_list[10]), 'mono: %.3f' % float(loss_list[11]))
+        print(
+            "scene: %.3f" % float(loss_list[0]),
+            "event: %.3f" % float(loss_list[1]),
+            "ISOPls: %.3f" % float(loss_list[2]),
+            "ISOEvs: %.3f" % float(loss_list[3]),
+            "plea: %.3f" % float(loss_list[4]),
+            "eventf: %.3f" % float(loss_list[5]),
+            "chao: %.3f" % float(loss_list[6]),
+            "vib: %.3f" % float(loss_list[7]),
+            "uneve: %.3f" % float(loss_list[8]),
+            "calm: %.3f" % float(loss_list[9]),
+            "ann: %.3f" % float(loss_list[10]),
+            "mono: %.3f" % float(loss_list[11]),
+        )
 
         if iteration % check_iter == 0 and iteration > 1:
             train_fin_time = time.time()
-            generate_func = generator.generate_validate(data_type='validate')
-            val_scene_acc, val_event_auc, val_ISOPls_mse, val_ISOEvs_mse, \
-            val_pleasant_mse, val_eventful_mse, val_chaotic_mse, val_vibrant_mse, \
-            val_uneventful_mse, val_calm_mse, val_annoying_mse, val_monotonous_mse = evaluate(model=model,
-                                                              generate_func=generate_func,
-                                                              cuda=cuda)
+            generate_func = generator.generate_validate(data_type="validate")
+            (
+                val_scene_acc,
+                val_event_auc,
+                val_ISOPls_mse,
+                val_ISOEvs_mse,
+                val_pleasant_mse,
+                val_eventful_mse,
+                val_chaotic_mse,
+                val_vibrant_mse,
+                val_uneventful_mse,
+                val_calm_mse,
+                val_annoying_mse,
+                val_monotonous_mse,
+            ) = evaluate(  # noqa: F821
+                model=model, generate_func=generate_func, cuda=cuda
+            )
 
-            print('E: ', '%.3f' % (Epoch),
-                  'val_scene: %.3f' % float(val_scene_acc), 'val_event: %.3f' % float(val_event_auc),
-                  'val_ISOP: %.3f' % float(val_ISOPls_mse), 'val_ISOE: %.3f' % float(val_ISOEvs_mse),
-                  'val_plea: %.3f' % float(val_pleasant_mse), 'val_even: %.3f' % float(val_eventful_mse),
-                  'val_chao: %.3f' % float(val_chaotic_mse), 'val_vibr: %.3f' % float(val_vibrant_mse),
-                  'val_uneve: %.3f' % float(val_uneventful_mse), 'val_calm: %.3f' % float(val_calm_mse),
-                  'val_anno: %.3f' % float(val_annoying_mse), 'val_mono: %.3f' % float(val_monotonous_mse))
+            print(
+                "E: ",
+                "%.3f" % (Epoch),
+                "val_scene: %.3f" % float(val_scene_acc),
+                "val_event: %.3f" % float(val_event_auc),
+                "val_ISOP: %.3f" % float(val_ISOPls_mse),
+                "val_ISOE: %.3f" % float(val_ISOEvs_mse),
+                "val_plea: %.3f" % float(val_pleasant_mse),
+                "val_even: %.3f" % float(val_eventful_mse),
+                "val_chao: %.3f" % float(val_chaotic_mse),
+                "val_vibr: %.3f" % float(val_vibrant_mse),
+                "val_uneve: %.3f" % float(val_uneventful_mse),
+                "val_calm: %.3f" % float(val_calm_mse),
+                "val_anno: %.3f" % float(val_annoying_mse),
+                "val_mono: %.3f" % float(val_monotonous_mse),
+            )
 
             train_time = train_fin_time - train_bgn_time
             validation_end_time = time.time()
             validate_time = validation_end_time - train_fin_time
-            print('epoch: {}, train time: {:.3f} s, iteration time: {:.3f} ms, validate time: {:.3f} s, '
-                  'inference time : {:.3f} ms'.format('%.2f' % (Epoch), train_time,
-                                                      (train_time / sample_num) * 1000, validate_time,
-                                                      1000 * validate_time / sample_num))
+            print(
+                "epoch: {}, train time: {:.3f} s, iteration time: {:.3f} ms, validate time: {:.3f} s, "
+                "inference time : {:.3f} ms".format(
+                    "%.2f" % (Epoch),
+                    train_time,
+                    (train_time / sample_num) * 1000,
+                    validate_time,
+                    1000 * validate_time / sample_num,
+                )
+            )
 
             if Epoch > 10:
-                if monitor == 'ISOPls':
+                if monitor == "ISOPls":
                     early_stopping_mse_loss(val_ISOPls_mse, model)
-                if monitor == 'ISOEvs':
+                if monitor == "ISOEvs":
                     early_stopping_mse_loss(val_ISOEvs_mse, model)
 
                 if early_stopping_mse_loss.early_stop:
                     finish_time = time.time() - training_start_time
-                    print('Model training finish time: {:.3f} s,'.format(finish_time))
+                    print("Model training finish time: {:.3f} s,".format(finish_time))
                     print("Early stopping")
 
-                    save_out_dict = {'state_dict': model.state_dict()}
-                    save_out_path = os.path.join(models_dir, 'final_model' + config.endswith)
+                    save_out_dict = {"state_dict": model.state_dict()}
+                    save_out_path = os.path.join(models_dir, "final_model" + config.endswith)
                     torch.save(save_out_dict, save_out_path)
-                    print('Final model saved to {}'.format(save_out_path))
-                    print('Training is done!!!')
+                    print("Final model saved to {}".format(save_out_path))
+                    print("Training is done!!!")
                     break
 
         # Stop learning
         if iteration > (epochs * one_epoch):
             finish_time = time.time() - training_start_time
-            print('Model training finish time: {:.3f} s,'.format(finish_time))
+            print("Model training finish time: {:.3f} s,".format(finish_time))
             print("All epochs are done.")
 
-            save_out_dict = {'state_dict': model.state_dict()}
-            save_out_path = os.path.join(models_dir, 'final_model' + config.endswith)
+            save_out_dict = {"state_dict": model.state_dict()}
+            save_out_path = os.path.join(models_dir, "final_model" + config.endswith)
             torch.save(save_out_dict, save_out_path)
-            print('Final model saved to {}'.format(save_out_path))
-            print('Training is done!!!')
+            print("Final model saved to {}".format(save_out_path))
+            print("Training is done!!!")
             break

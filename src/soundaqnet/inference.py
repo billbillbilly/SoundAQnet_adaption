@@ -54,14 +54,12 @@ Bundled model names (pass to --model or SoundAQnet()):
 
 from __future__ import annotations
 
-import os
-import sys
-import pickle
 import argparse
-import tempfile
-from pathlib import Path
+import os
+import pickle
+import sys
 from importlib.resources import files as _pkg_files
-from typing import Iterator
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -69,19 +67,31 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
+from soundaqnet.framework import config
+
 # Internal PyTorch model (renamed to avoid clash with the public SoundAQnet class)
 from soundaqnet.framework.models_pytorch import SoundAQnet as _SoundAQnetModel
-from soundaqnet.framework import config
-from soundaqnet.framework.utilities import create_folder, calculate_scalar, scale
-
+from soundaqnet.framework.utilities import calculate_scalar, create_folder, scale
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
 #: Labels for the 15 audio-event output nodes.
 EVENT_LABELS: list[str] = [
-    "Silence", "Human sounds", "Wind", "Water", "Natural sounds", "Traffic",
-    "Sounds of things", "Vehicle", "Bird", "Outside, rural or natural",
-    "Environment and background", "Speech", "Music", "Noise", "Animal",
+    "Silence",
+    "Human sounds",
+    "Wind",
+    "Water",
+    "Natural sounds",
+    "Traffic",
+    "Sounds of things",
+    "Vehicle",
+    "Bird",
+    "Outside, rural or natural",
+    "Environment and background",
+    "Speech",
+    "Music",
+    "Noise",
+    "Animal",
 ]
 
 #: Short names that can be passed to SoundAQnet() instead of a full path.
@@ -99,6 +109,7 @@ _SUPPORTED_EXTS = (".wav", ".mp3", ".flac", ".ogg", ".aiff", ".aif", ".m4a", ".o
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def resolve_model_path(model_arg: str) -> str:
     """Return an absolute path to a .pth file.
@@ -142,12 +153,13 @@ def _load_norm_stats() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         mel_data = pickle.load(fh, encoding="bytes")
     with open(str(data_pkg / "norm_loudness.pickle"), "rb") as fh:
         loud_data = pickle.load(fh, encoding="bytes")
-    mean_mel,   std_mel   = calculate_scalar(mel_data)
-    mean_loud,  std_loud  = calculate_scalar(loud_data)
+    mean_mel, std_mel = calculate_scalar(mel_data)
+    mean_loud, std_loud = calculate_scalar(loud_data)
     return mean_mel, std_mel, mean_loud, std_loud
 
 
 # ── SoundAQnet high-level class ───────────────────────────────────────────────
+
 
 class SoundAQnet:
     """High-level SoundAQnet soundscape inference interface.
@@ -182,9 +194,9 @@ class SoundAQnet:
 
     # Model architecture hyper-parameters (fixed for all pretrained checkpoints)
     _NODE_EMB_DIM = 64
-    _HIDDEN_DIM   = 32
-    _OUT_DIM      = 64
-    _NUM_NODES    = 8
+    _HIDDEN_DIM = 32
+    _OUT_DIM = 64
+    _NUM_NODES = 8
 
     def __init__(
         self,
@@ -218,8 +230,7 @@ class SoundAQnet:
         self._net.eval()
 
         # ── normalisation statistics ──────────────────────────────────────────
-        self._mean_mel, self._std_mel, self._mean_loud, self._std_loud = \
-            _load_norm_stats()
+        self._mean_mel, self._std_mel, self._mean_loud, self._std_loud = _load_norm_stats()
 
         self.model_path = model_path
 
@@ -251,17 +262,28 @@ class SoundAQnet:
 
     def _forward_batch(
         self,
-        mel_batch:  np.ndarray,   # (B, T, 64)
-        loud_batch: np.ndarray,   # (B, T, 1)
+        mel_batch: np.ndarray,  # (B, T, 64)
+        loud_batch: np.ndarray,  # (B, T, 1)
     ) -> dict[str, np.ndarray]:
         """Run the model on one numpy batch; return raw numpy outputs."""
-        x      = torch.from_numpy(mel_batch).float().to(self.device)
+        x = torch.from_numpy(mel_batch).float().to(self.device)
         x_loud = torch.from_numpy(loud_batch).float().to(self.device)
 
         with torch.no_grad():
-            scene, event, ISOPls, ISOEvs, \
-            pleasant, eventful, chaotic, vibrant, \
-            uneventful, calm, annoying, monotonous = self._net(x, x_loud)
+            (
+                scene,
+                event,
+                ISOPls,
+                ISOEvs,
+                pleasant,
+                eventful,
+                chaotic,
+                vibrant,
+                uneventful,
+                calm,
+                annoying,
+                monotonous,
+            ) = self._net(x, x_loud)
 
             event = F.sigmoid(event)
 
@@ -269,17 +291,17 @@ class SoundAQnet:
             return t.cpu().numpy()
 
         return {
-            "scene":      _np(scene),       # (B, 3)  logits → softmax later
-            "event":      _np(event),        # (B, 15) probabilities
-            "ISOPls":     _np(ISOPls),       # (B, 1)
-            "ISOEvs":     _np(ISOEvs),       # (B, 1)
-            "pleasant":   _np(pleasant),
-            "eventful":   _np(eventful),
-            "chaotic":    _np(chaotic),
-            "vibrant":    _np(vibrant),
+            "scene": _np(scene),  # (B, 3)  logits → softmax later
+            "event": _np(event),  # (B, 15) probabilities
+            "ISOPls": _np(ISOPls),  # (B, 1)
+            "ISOEvs": _np(ISOEvs),  # (B, 1)
+            "pleasant": _np(pleasant),
+            "eventful": _np(eventful),
+            "chaotic": _np(chaotic),
+            "vibrant": _np(vibrant),
             "uneventful": _np(uneventful),
-            "calm":       _np(calm),
-            "annoying":   _np(annoying),
+            "calm": _np(calm),
+            "annoying": _np(annoying),
             "monotonous": _np(monotonous),
         }
 
@@ -289,26 +311,23 @@ class SoundAQnet:
     def _build_record(clip_id: str, raw: dict[str, np.ndarray], idx: int) -> dict:
         """Convert model output arrays at position *idx* into a result dict."""
         scene_idx = int(np.argmax(raw["scene"][idx]))
-        event_probs = {
-            label: float(raw["event"][idx, i])
-            for i, label in enumerate(EVENT_LABELS)
-        }
+        event_probs = {label: float(raw["event"][idx, i]) for i, label in enumerate(EVENT_LABELS)}
         top_events = sorted(event_probs, key=event_probs.get, reverse=True)[:5]
 
         return {
-            "clip_id":     clip_id,
-            "scene":       config.scene_labels[scene_idx],
-            "isop":        float(raw["ISOPls"][idx, 0]),
-            "isoe":        float(raw["ISOEvs"][idx, 0]),
-            "pleasant":    float(raw["pleasant"][idx, 0]),
-            "eventful":    float(raw["eventful"][idx, 0]),
-            "chaotic":     float(raw["chaotic"][idx, 0]),
-            "vibrant":     float(raw["vibrant"][idx, 0]),
-            "uneventful":  float(raw["uneventful"][idx, 0]),
-            "calm":        float(raw["calm"][idx, 0]),
-            "annoying":    float(raw["annoying"][idx, 0]),
-            "monotonous":  float(raw["monotonous"][idx, 0]),
-            "top_events":  top_events,
+            "clip_id": clip_id,
+            "scene": config.scene_labels[scene_idx],
+            "isop": float(raw["ISOPls"][idx, 0]),
+            "isoe": float(raw["ISOEvs"][idx, 0]),
+            "pleasant": float(raw["pleasant"][idx, 0]),
+            "eventful": float(raw["eventful"][idx, 0]),
+            "chaotic": float(raw["chaotic"][idx, 0]),
+            "vibrant": float(raw["vibrant"][idx, 0]),
+            "uneventful": float(raw["uneventful"][idx, 0]),
+            "calm": float(raw["calm"][idx, 0]),
+            "annoying": float(raw["annoying"][idx, 0]),
+            "monotonous": float(raw["monotonous"][idx, 0]),
+            "top_events": top_events,
             "event_probs": event_probs,
         }
 
@@ -316,11 +335,11 @@ class SoundAQnet:
 
     def _flush_batch(
         self,
-        mel_list:   list[np.ndarray],
-        loud_list:  list[np.ndarray],
-        names:      list[str],
+        mel_list: list[np.ndarray],
+        loud_list: list[np.ndarray],
+        names: list[str],
     ) -> list[dict]:
-        mel_arr  = np.stack(mel_list,  axis=0)
+        mel_arr = np.stack(mel_list, axis=0)
         loud_arr = np.stack(loud_list, axis=0)
         raw = self._forward_batch(mel_arr, loud_arr)
         return [self._build_record(names[i], raw, i) for i in range(len(names))]
@@ -329,7 +348,7 @@ class SoundAQnet:
 
     def predict_sample(
         self,
-        mel:      np.ndarray,
+        mel: np.ndarray,
         loudness: np.ndarray,
     ) -> dict:
         """Run inference on a **single** pre-extracted feature sample.
@@ -362,16 +381,16 @@ class SoundAQnet:
         >>> result["top_events"]
         ['Bird', 'Wind', 'Natural sounds', 'Silence', 'Water']
         """
-        mel_n  = self._norm_mel(mel[None])    # (1, T, 64)
+        mel_n = self._norm_mel(mel[None])  # (1, T, 64)
         loud_n = self._norm_loud(loudness[None])  # (1, T, 1)
-        raw    = self._forward_batch(mel_n, loud_n)
+        raw = self._forward_batch(mel_n, loud_n)
         return self._build_record("sample", raw, 0)
 
     def predict(
         self,
-        mel_dir:      str | Path,
+        mel_dir: str | Path,
         loudness_dir: str | Path,
-        batch_size:   int = 32,
+        batch_size: int = 32,
         show_progress: bool = True,
     ) -> pd.DataFrame:
         """Run inference on directories of pre-extracted ``.npy`` feature files.
@@ -406,17 +425,17 @@ class SoundAQnet:
         >>> df.columns.tolist()
         ['clip_id', 'scene', 'isop', 'isoe', 'pleasant', ..., 'event_probs']
         """
-        mel_dir      = Path(mel_dir)
+        mel_dir = Path(mel_dir)
         loudness_dir = Path(loudness_dir)
 
         mel_files = sorted(mel_dir.glob("*.npy"))
         if not mel_files:
             raise ValueError(f"No .npy files found in {mel_dir}")
 
-        records:   list[dict]       = []
-        mel_list:  list[np.ndarray] = []
+        records: list[dict] = []
+        mel_list: list[np.ndarray] = []
         loud_list: list[np.ndarray] = []
-        names:     list[str]        = []
+        names: list[str] = []
 
         with tqdm(total=len(mel_files), desc="Inference", disable=not show_progress) as pbar:
             for mel_file in mel_files:
@@ -426,7 +445,7 @@ class SoundAQnet:
                     pbar.update(1)
                     continue
 
-                mel_n  = self._norm_mel(np.load(str(mel_file)).astype(np.float32))
+                mel_n = self._norm_mel(np.load(str(mel_file)).astype(np.float32))
                 loud_n = self._norm_loud(np.load(str(loud_file)).astype(np.float32))
 
                 mel_list.append(mel_n)
@@ -446,10 +465,10 @@ class SoundAQnet:
 
     def predict_from_audio(
         self,
-        audio_dir:     str | Path | None  = None,
-        audio_files:   list[str | Path] | None = None,
-        batch_size:    int = 32,
-        num_workers:   int = 4,
+        audio_dir: str | Path | None = None,
+        audio_files: list[str | Path] | None = None,
+        batch_size: int = 32,
+        num_workers: int = 4,
         show_progress: bool = True,
     ) -> pd.DataFrame:
         """End-to-end inference: **extract features then predict**.
@@ -483,13 +502,12 @@ class SoundAQnet:
         >>> df = model.predict_from_audio("audio/", batch_size=64, num_workers=8)
         >>> df = model.predict_from_audio(audio_files=["a.wav", "b.mp3"])
         """
-        from soundaqnet.feature_extraction.mel_spectrogram import extract_mel_from_file
         from soundaqnet.feature_extraction.loudness import extract_loudness_from_file
+        from soundaqnet.feature_extraction.mel_spectrogram import extract_mel_from_file
 
         if audio_dir is not None:
             files = sorted(
-                p for p in Path(audio_dir).iterdir()
-                if p.suffix.lower() in _SUPPORTED_EXTS
+                p for p in Path(audio_dir).iterdir() if p.suffix.lower() in _SUPPORTED_EXTS
             )
         elif audio_files is not None:
             files = [Path(f) for f in audio_files]
@@ -499,18 +517,21 @@ class SoundAQnet:
         if not files:
             raise ValueError(f"No supported audio files found in {audio_dir or audio_files}")
 
-        records:   list[dict]       = []
-        mel_list:  list[np.ndarray] = []
+        records: list[dict] = []
+        mel_list: list[np.ndarray] = []
         loud_list: list[np.ndarray] = []
-        names:     list[str]        = []
+        names: list[str] = []
 
-        print(f"Extracting features for {len(files)} file(s) "
-              f"(num_workers={num_workers}, batch_size={batch_size})…")
+        print(
+            f"Extracting features for {len(files)} file(s) "
+            f"(num_workers={num_workers}, batch_size={batch_size})…"
+        )
 
-        with tqdm(total=len(files), desc="Extracting + inference",
-                  disable=not show_progress) as pbar:
+        with tqdm(
+            total=len(files), desc="Extracting + inference", disable=not show_progress
+        ) as pbar:
             for audio_file in files:
-                mel  = extract_mel_from_file(audio_file, num_workers=1)
+                mel = extract_mel_from_file(audio_file, num_workers=1)
                 loud = extract_loudness_from_file(audio_file, num_workers=1)
 
                 mel_list.append(self._norm_mel(mel))
@@ -529,14 +550,11 @@ class SoundAQnet:
         return pd.DataFrame(records)
 
     def __repr__(self) -> str:
-        return (
-            f"SoundAQnet("
-            f"model='{Path(self.model_path).stem}', "
-            f"device='{self.device}')"
-        )
+        return f"SoundAQnet(" f"model='{Path(self.model_path).stem}', " f"device='{self.device}')"
 
 
 # ── CLI entry point ───────────────────────────────────────────────────────────
+
 
 def main() -> int:
     """CLI: soundaqnet-infer"""
@@ -549,7 +567,7 @@ def main() -> int:
         type=str,
         default=os.path.join(os.getcwd(), "Dataset"),
         help="(Legacy) Path to Dataset directory for normalization files. "
-             "Bundled stats are used automatically; this flag is ignored.",
+        "Bundled stats are used automatically; this flag is ignored.",
     )
     parser.add_argument(
         "--dataset_mel",
@@ -636,8 +654,14 @@ def main() -> int:
             fh.write(row["scene"] + "\n")
             fh.write(f"{row['isop']}\t{row['isoe']}\n")
             paq_vals = [
-                row["pleasant"], row["eventful"], row["chaotic"], row["vibrant"],
-                row["uneventful"], row["calm"], row["annoying"], row["monotonous"],
+                row["pleasant"],
+                row["eventful"],
+                row["chaotic"],
+                row["vibrant"],
+                row["uneventful"],
+                row["calm"],
+                row["annoying"],
+                row["monotonous"],
             ]
             fh.write("\t".join(str(v) for v in paq_vals) + "\n")
         print(f"Scene: {row['scene']}")

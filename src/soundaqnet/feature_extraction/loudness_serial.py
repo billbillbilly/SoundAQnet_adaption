@@ -13,17 +13,16 @@ CLI
 
 from __future__ import annotations
 
-import os
-import sys
-import time as tm
-import subprocess as sbp
 import argparse
+import os
+import subprocess as sbp
+import sys
 import warnings
-from pathlib import Path
 from importlib.resources import files as _pkg_files
+from pathlib import Path
 
-import numpy as np
 import librosa
+import numpy as np
 import soundfile
 from tqdm import tqdm
 
@@ -33,6 +32,7 @@ warnings.filterwarnings("ignore")
 
 
 # ── bundled-asset helpers ─────────────────────────────────────────────────────
+
 
 def _iso532_exe() -> Path:
     if sys.platform != "win32":
@@ -47,15 +47,20 @@ def _iso532_exe() -> Path:
 
 
 def _calibration_wav() -> Path:
-    wav = Path(str(_pkg_files("soundaqnet.feature_extraction")
-                   / "calibration_audio_file"
-                   / "calibration_signal_sine_1kHz_60dB.wav"))
+    wav = Path(
+        str(
+            _pkg_files("soundaqnet.feature_extraction")
+            / "calibration_audio_file"
+            / "calibration_signal_sine_1kHz_60dB.wav"
+        )
+    )
     if not wav.exists():
         raise FileNotFoundError(f"Bundled calibration WAV not found: {wav}")
     return wav
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def createDirs(dname: str) -> None:
     if not os.path.isdir(dname):
@@ -67,8 +72,7 @@ def listFnames(dirName: str) -> list[str]:
     fnames = []
     for rootDir, _, filesList in os.walk(dirName):
         fnames += [
-            os.path.join(rootDir, f) for f in filesList
-            if Path(f).suffix.lower() in SUPPORTED_EXTS
+            os.path.join(rootDir, f) for f in filesList if Path(f).suffix.lower() in SUPPORTED_EXTS
         ]
     return fnames
 
@@ -92,12 +96,17 @@ def prepare_iso_input(src_path: str, out_dir: str = "pcm16", target_sr: int = 48
     return str(out_path)
 
 
-def runProcess(loudnessExe: str, method: str, soundField: str,
-               audioFile: str, refFile: str, refLevel: float) -> str:
+def runProcess(
+    loudnessExe: str, method: str, soundField: str, audioFile: str, refFile: str, refLevel: float
+) -> str:
     comList = [loudnessExe, method, soundField, audioFile, refFile, str(int(refLevel))]
     proc = sbp.run(
-        comList, stdout=sbp.PIPE, stderr=sbp.PIPE,
-        text=True, encoding="utf-8", errors="replace",
+        comList,
+        stdout=sbp.PIPE,
+        stderr=sbp.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     output = (proc.stdout or "") + (("\n" + proc.stderr) if proc.stderr else "")
     lowered = output.lower()
@@ -108,6 +117,7 @@ def runProcess(loudnessExe: str, method: str, soundField: str,
 
 def getData() -> np.ndarray:
     import pandas as pd
+
     dfLoudness = pd.read_csv("Loudness.csv", sep=";", skiprows=5, index_col=0)
     return dfLoudness.to_numpy()
 
@@ -120,6 +130,7 @@ def removeTemp() -> None:
 
 # ── main / CLI ────────────────────────────────────────────────────────────────
 
+
 def main() -> int:
     """CLI: soundaqnet-extract-loudness-serial"""
     METHOD_DICT = {"Varying": "Time_varying", "Stationary": "Stationary"}
@@ -128,11 +139,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Single-threaded ISO 532-1 loudness extraction (Windows only)."
     )
-    parser.add_argument("--input_dir",   required=True,
-                        help="Directory of .wav files.")
-    parser.add_argument("--output_dir",  default="Dataset_wav_loudness",
-                        help="Output directory for .npy loudness files.")
-    parser.add_argument("--target_sr",   type=int, default=48000, choices=[32000, 44100, 48000])
+    parser.add_argument("--input_dir", required=True, help="Directory of .wav files.")
+    parser.add_argument(
+        "--output_dir",
+        default="Dataset_wav_loudness",
+        help="Output directory for .npy loudness files.",
+    )
+    parser.add_argument("--target_sr", type=int, default=48000, choices=[32000, 44100, 48000])
     args = parser.parse_args()
 
     if sys.platform != "win32":
@@ -158,8 +171,6 @@ def main() -> int:
 
     for audioFile in tqdm(audioFiles, total=len(audioFiles)):
         fileDir = os.path.join(output_dir, Path(audioFile).stem + ".npy")
-
-        st = tm.perf_counter()
 
         try:
             audio_iso = prepare_iso_input(audioFile, out_dir="pcm16", target_sr=target_sr)

@@ -16,21 +16,21 @@ CLI
 
 from __future__ import annotations
 
-import os
-import sys
 import argparse
-import subprocess as sbp
-import warnings
+import multiprocessing
+import os
 import shutil
+import subprocess as sbp
+import sys
 import tempfile
 import traceback
-import multiprocessing
-from pathlib import Path
+import warnings
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from importlib.resources import files as _pkg_files
+from pathlib import Path
 
-import numpy as np
 import librosa
+import numpy as np
 import soundfile
 from tqdm import tqdm
 
@@ -40,6 +40,7 @@ warnings.filterwarnings("ignore")
 
 
 # ── bundled-asset helpers ─────────────────────────────────────────────────────
+
 
 def _iso532_exe() -> Path:
     if sys.platform != "win32":
@@ -54,15 +55,20 @@ def _iso532_exe() -> Path:
 
 
 def _calibration_wav() -> Path:
-    wav = Path(str(_pkg_files("soundaqnet.feature_extraction")
-                   / "calibration_audio_file"
-                   / "calibration_signal_sine_1kHz_60dB.wav"))
+    wav = Path(
+        str(
+            _pkg_files("soundaqnet.feature_extraction")
+            / "calibration_audio_file"
+            / "calibration_signal_sine_1kHz_60dB.wav"
+        )
+    )
     if not wav.exists():
         raise FileNotFoundError(f"Bundled calibration WAV not found: {wav}")
     return wav
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def createDirs(dname: str) -> None:
     if not os.path.isdir(dname):
@@ -74,8 +80,7 @@ def listFnames(dirName: str) -> list[str]:
     fnames = []
     for rootDir, _, filesList in os.walk(dirName):
         fnames += [
-            os.path.join(rootDir, f) for f in filesList
-            if Path(f).suffix.lower() in SUPPORTED_EXTS
+            os.path.join(rootDir, f) for f in filesList if Path(f).suffix.lower() in SUPPORTED_EXTS
         ]
     return fnames
 
@@ -99,8 +104,15 @@ def prepare_iso_input(src_path: str, out_dir: str, target_sr: int = 48000) -> st
     return str(out_path.resolve())
 
 
-def runProcess(loudnessExe: str, method: str, soundField: str, audioFile: str,
-               refFile: str, refLevel: float, work_dir: str) -> str:
+def runProcess(
+    loudnessExe: str,
+    method: str,
+    soundField: str,
+    audioFile: str,
+    refFile: str,
+    refLevel: float,
+    work_dir: str,
+) -> str:
     loudnessExe = os.path.abspath(loudnessExe)
     audioFile = os.path.abspath(audioFile)
     refFile = os.path.abspath(refFile)
@@ -108,9 +120,14 @@ def runProcess(loudnessExe: str, method: str, soundField: str, audioFile: str,
 
     comList = [loudnessExe, method, soundField, audioFile, refFile, str(int(refLevel))]
     proc = sbp.run(
-        comList, stdout=sbp.PIPE, stderr=sbp.PIPE,
-        text=True, encoding="utf-8", errors="replace",
-        cwd=work_dir, shell=False,
+        comList,
+        stdout=sbp.PIPE,
+        stderr=sbp.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=work_dir,
+        shell=False,
     )
     output = (proc.stdout or "") + (("\n" + proc.stderr) if proc.stderr else "")
     lowered = output.lower()
@@ -121,6 +138,7 @@ def runProcess(loudnessExe: str, method: str, soundField: str, audioFile: str,
 
 def getData(csv_path: str) -> np.ndarray:
     import pandas as pd
+
     csv_path = os.path.abspath(csv_path)
     dfLoudness = pd.read_csv(csv_path, sep=";", skiprows=5, index_col=0)
     return dfLoudness.to_numpy()
@@ -132,10 +150,20 @@ def audio_to_output_path(audioFile: str, output_dir: str) -> str:
 
 # ── Top-level worker (must be module-level for Windows multiprocessing) ───────
 
+
 def process_one(task: tuple) -> dict:
     (
-        audioFile, output_dir, tmp_root, exe, meth, sf, rfile, rlev,
-        target_sr, overwrite, debug_paths,
+        audioFile,
+        output_dir,
+        tmp_root,
+        exe,
+        meth,
+        sf,
+        rfile,
+        rlev,
+        target_sr,
+        overwrite,
+        debug_paths,
     ) = task
 
     audioFile = os.path.abspath(audioFile)
@@ -155,8 +183,13 @@ def process_one(task: tuple) -> dict:
         audio_iso = prepare_iso_input(audioFile, out_dir=worker_tmp, target_sr=target_sr)
 
         if debug_paths:
-            for p, label in [(audioFile, "audioFile"), (audio_iso, "audio_iso"),
-                             (exe, "exe"), (rfile, "rfile"), (worker_tmp, "worker_tmp")]:
+            for p, label in [
+                (audioFile, "audioFile"),
+                (audio_iso, "audio_iso"),
+                (exe, "exe"),
+                (rfile, "rfile"),
+                (worker_tmp, "worker_tmp"),
+            ]:
                 if not os.path.exists(p):
                     raise FileNotFoundError(f"{label} not found: {p}")
 
@@ -173,7 +206,9 @@ def process_one(task: tuple) -> dict:
 
     except Exception as e:
         return {
-            "status": "error", "audioFile": audioFile, "output": out_npy,
+            "status": "error",
+            "audioFile": audioFile,
+            "output": out_npy,
             "error": f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
         }
 
@@ -183,6 +218,7 @@ def process_one(task: tuple) -> dict:
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
+
 def main() -> int:
     """CLI: soundaqnet-extract-loudness-para"""
     METHOD_DICT = {"Varying": "Time_varying", "Stationary": "Stationary"}
@@ -191,15 +227,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Process-parallel ISO 532-1 loudness extraction (Windows only)."
     )
-    parser.add_argument("--input_dir",   required=True)
-    parser.add_argument("--output_dir",  default="Dataset_wav_loudness")
-    parser.add_argument("--target_sr",   type=int, default=48000, choices=[32000, 44100, 48000])
+    parser.add_argument("--input_dir", required=True)
+    parser.add_argument("--output_dir", default="Dataset_wav_loudness")
+    parser.add_argument("--target_sr", type=int, default=48000, choices=[32000, 44100, 48000])
     parser.add_argument("--num_workers", type=int, default=max(1, (os.cpu_count() or 1) // 2))
-    parser.add_argument("--start_idx",   type=int, default=0)
-    parser.add_argument("--end_idx",     type=int, default=None)
-    parser.add_argument("--overwrite",   action="store_true")
-    parser.add_argument("--method",      default="Varying", choices=["Varying", "Stationary"])
-    parser.add_argument("--sound_field", default="Free",    choices=["Free", "Diffuse"])
+    parser.add_argument("--start_idx", type=int, default=0)
+    parser.add_argument("--end_idx", type=int, default=None)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--method", default="Varying", choices=["Varying", "Stationary"])
+    parser.add_argument("--sound_field", default="Free", choices=["Free", "Diffuse"])
     parser.add_argument("--debug_paths", action="store_true")
     args = parser.parse_args()
 
@@ -244,8 +280,19 @@ def main() -> int:
     print(f"Output dir: {output_dir}  Workers: {args.num_workers}  SR: {args.target_sr}")
 
     tasks = [
-        (af, output_dir, tmp_root, exe, meth, sf, rfile, rlev,
-         args.target_sr, args.overwrite, args.debug_paths)
+        (
+            af,
+            output_dir,
+            tmp_root,
+            exe,
+            meth,
+            sf,
+            rfile,
+            rlev,
+            args.target_sr,
+            args.overwrite,
+            args.debug_paths,
+        )
         for af in audioFiles
     ]
 

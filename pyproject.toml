@@ -138,7 +138,17 @@ target-version = ["py310"]
 
 [tool.ruff]
 line-length = 100
-select      = ["E", "F", "W", "I"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+# Legacy framework files and original serial/parallel extractors contain many
+# intentionally long lines (ML boilerplate, long variable names).  Suppress
+# E501 there so CI noise doesn't obscure real issues.
+[tool.ruff.lint.per-file-ignores]
+"src/soundaqnet/framework/*.py"                           = ["E501"]
+"src/soundaqnet/feature_extraction/loudness_serial.py"   = ["E501"]
+"src/soundaqnet/feature_extraction/loudness_parallel.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
