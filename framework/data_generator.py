@@ -183,59 +183,113 @@ class DataGenerator_Mel_loudness_graph(object):
         with open(file, 'wb') as f:
             pickle.dump(data, f)
 
-    def generate_inference_soundscape_clip_for_LLM(self, Dataset_mel, Dataset_loudness):
-        # Keep a stable order so mel and loudness match
-        file_names = sorted(
-            [f for f in os.listdir(Dataset_mel) if f.endswith(".npy")]
-        )
+    def generate_inference_soundscape_clip_for_LLM(self, Dataset_mel, Dataset_loudness,
+                                                   skip_done_dir=None):
+        """Yield length-uniform batches lazily.
 
-        audios_num = len(file_names)
-        # print("Number of {} audio clip(s) in inference".format(audios_num))
+        Clips are grouped by their mel frame count so every np.stack within a
+        batch is valid (the model tolerates variable length across batches via
+        global pooling, but a single batch must be uniform).
 
-        pointer = 0
-        while pointer < audios_num:
-            batch_file_names = file_names[pointer: pointer + self.batch_size]
-            pointer += self.batch_size
+        skip_done_dir: if given, any clip whose '<name>_scene_PAQ.txt' already
+        exists in that directory is skipped (resume support).
+        """
+        from collections import defaultdict
 
-            batch_x_list = []
-            batch_x_loudness_list = []
+        file_names = sorted(f for f in os.listdir(Dataset_mel) if f.lower().endswith(".npy"))
 
-            for file_name in batch_file_names:
-                mel_path = os.path.join(Dataset_mel, file_name)
-                loudness_path = os.path.join(Dataset_loudness, file_name)
+        pending = defaultdict(list)   # frame_count -> list of (mel, loudness, name)
 
-                if not os.path.exists(loudness_path):
-                    raise FileNotFoundError(
-                        f"Loudness feature file not found for {file_name}: {loudness_path}"
-                    )
-
-                mel = np.load(mel_path).astype(np.float32, copy=False)
-                loudness = np.load(loudness_path).astype(np.float32, copy=False)
-
-                batch_x_list.append(mel)
-                batch_x_loudness_list.append(loudness)
-
-            batch_x = np.stack(batch_x_list, axis=0)
-            batch_x_loudness = np.stack(batch_x_loudness_list, axis=0)
-
+        def make_batch(items):
+            mels  = np.stack([m for m, l, n in items], axis=0)
+            louds = np.stack([l for m, l, n in items], axis=0)
+            names = [n for m, l, n in items]
             if self.normal:
-                batch_x = self.transform(batch_x, self.mean_log_mel, self.std_log_mel)
-                batch_x_loudness = self.transform(
-                    batch_x_loudness, self.mean_loudness, self.std_loudness
+                mels  = self.transform(mels,  self.mean_log_mel,  self.std_log_mel)
+                louds = self.transform(louds, self.mean_loudness, self.std_loudness)
+            graph = [self.one_graph for _ in range(len(items))]
+            return mels, louds, graph, names
+
+        for file_name in file_names:
+            # Resume: skip clips that already have output written.
+            if skip_done_dir is not None:
+                done_path = os.path.join(skip_done_dir,
+                                         file_name.replace(".npy", "_scene_PAQ.txt"))
+                if os.path.exists(done_path):
+                    continue
+
+            mel = np.load(os.path.join(Dataset_mel, file_name)).astype(np.float32, copy=False)
+            loud_path = os.path.join(Dataset_loudness, file_name)
+            if not os.path.exists(loud_path):
+                raise FileNotFoundError(
+                    "Loudness feature file not found for {}: {}".format(file_name, loud_path)
                 )
+            loudness = np.load(loud_path).astype(np.float32, copy=False)
 
-            current_batch_size = len(batch_file_names)
-            batch_graph = [self.one_graph for _ in range(current_batch_size)]
+            key = mel.shape[0]
+            pending[key].append((mel, loudness, file_name))
+            if len(pending[key]) == self.batch_size:
+                yield make_batch(pending[key])
+                pending[key] = []
 
-            # print(
-            #     "Inference batch: mel {}, loudness {}, files {} -> {}".format(
-            #         batch_x.shape,
-            #         batch_x_loudness.shape,
-            #         batch_file_names[0],
-            #         batch_file_names[-1]
-            #     )
-            # )
-            yield batch_x, batch_x_loudness, batch_graph, batch_file_names
+        # Flush any partial buckets left over at the end.
+        for key, items in list(pending.items()):
+            if items:
+                yield make_batch(items)
+
+    # def generate_inference_soundscape_clip_for_LLM(self, Dataset_mel, Dataset_loudness):
+    #     # Keep a stable order so mel and loudness match
+    #     file_names = sorted(
+    #         [f for f in os.listdir(Dataset_mel) if f.endswith(".npy")]
+    #     )
+
+    #     audios_num = len(file_names)
+    #     # print("Number of {} audio clip(s) in inference".format(audios_num))
+
+    #     pointer = 0
+    #     while pointer < audios_num:
+    #         batch_file_names = file_names[pointer: pointer + self.batch_size]
+    #         pointer += self.batch_size
+
+    #         batch_x_list = []
+    #         batch_x_loudness_list = []
+
+    #         for file_name in batch_file_names:
+    #             mel_path = os.path.join(Dataset_mel, file_name)
+    #             loudness_path = os.path.join(Dataset_loudness, file_name)
+
+    #             if not os.path.exists(loudness_path):
+    #                 raise FileNotFoundError(
+    #                     f"Loudness feature file not found for {file_name}: {loudness_path}"
+    #                 )
+
+    #             mel = np.load(mel_path).astype(np.float32, copy=False)
+    #             loudness = np.load(loudness_path).astype(np.float32, copy=False)
+
+    #             batch_x_list.append(mel)
+    #             batch_x_loudness_list.append(loudness)
+
+    #         batch_x = np.stack(batch_x_list, axis=0)
+    #         batch_x_loudness = np.stack(batch_x_loudness_list, axis=0)
+
+    #         if self.normal:
+    #             batch_x = self.transform(batch_x, self.mean_log_mel, self.std_log_mel)
+    #             batch_x_loudness = self.transform(
+    #                 batch_x_loudness, self.mean_loudness, self.std_loudness
+    #             )
+
+    #         current_batch_size = len(batch_file_names)
+    #         batch_graph = [self.one_graph for _ in range(current_batch_size)]
+
+    #         # print(
+    #         #     "Inference batch: mel {}, loudness {}, files {} -> {}".format(
+    #         #         batch_x.shape,
+    #         #         batch_x_loudness.shape,
+    #         #         batch_file_names[0],
+    #         #         batch_file_names[-1]
+    #         #     )
+    #         # )
+    #         yield batch_x, batch_x_loudness, batch_graph, batch_file_names
 
     # def generate_inference_soundscape_clip_for_LLM(self, Dataset_mel, Dataset_loudness):
     #     # load

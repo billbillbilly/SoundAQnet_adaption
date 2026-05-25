@@ -18,7 +18,7 @@ After installing conda:
 ```sh
 cd SoundAQnet
 pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
-pip install dgl --index-url https://data.dgl.ai/wheels/cu121/repo.html
+pip install  dgl -f https://data.dgl.ai/wheels/cu121/repo.html
 pip install -r requirements.txt
 conda install -c conda-forge ffmpeg
 ```
@@ -38,7 +38,7 @@ The log Mel features and ISO 532-1 loudness features file will be used as input 
 
 ```sh
 cd application
-python Inference.py --dataset_mel $mel_spectrogram --dataset_wav_loudness $ISO_loudness --model system/model/SoundAQnet_ASC96_AEC94_PAQ1027.pth
+python Inference.py --dataset_mel $mel_spectrogram --dataset_wav_loudness $ISO_loudness --model system/model/SoundAQnet_ASC96_AEC95_PAQ1052.pth
 ```
 
 - There are four slightly different SoundAQnet models in the `system/model` directory:

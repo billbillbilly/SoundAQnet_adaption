@@ -232,7 +232,7 @@ def main():
     parser.add_argument(
         "--chunk_size",
         type=int,
-        default=5000,
+        default=10000,
         help="Submit work in chunks of this size to bound memory (item 7).",
     )
     parser.add_argument("--debug_paths", action="store_true")
