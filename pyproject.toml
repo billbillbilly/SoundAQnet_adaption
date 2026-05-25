@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "soundaqnet"
-version = "0.1.1"
+version = "0.1.2"
 description = "Inferring affective quality from soundscape clips using the SoundAQnet model"
 readme = "README.md"
 license = { text = "MIT" }
