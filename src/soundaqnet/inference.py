@@ -331,7 +331,7 @@ class SoundAQnet:
             "event_probs": event_probs,
         }
 
-    # ── batch accumulator helper ──────────────────────────────────────────────
+    # ── batch accumulator helpers ─────────────────────────────────────────────
 
     def _flush_batch(
         self,
@@ -343,6 +343,33 @@ class SoundAQnet:
         loud_arr = np.stack(loud_list, axis=0)
         raw = self._forward_batch(mel_arr, loud_arr)
         return [self._build_record(names[i], raw, i) for i in range(len(names))]
+
+    def _flush_buckets(
+        self,
+        buckets: dict,
+        batch_size: int,
+        force: bool = False,
+    ) -> list[dict]:
+        """Flush length-uniform buckets whose size reached *batch_size*.
+
+        Clips are grouped by their time-axis length so that ``np.stack``
+        inside ``_flush_batch`` always receives arrays of identical shape.
+        Pass ``force=True`` to flush all remaining partial buckets (end of
+        iteration).
+        """
+        records: list[dict] = []
+        for key in list(buckets):
+            mels, louds, names = buckets[key]
+            while len(mels) >= batch_size:
+                records += self._flush_batch(
+                    mels[:batch_size], louds[:batch_size], names[:batch_size]
+                )
+                mels, louds, names = mels[batch_size:], louds[batch_size:], names[batch_size:]
+            if force and mels:
+                records += self._flush_batch(mels, louds, names)
+                mels, louds, names = [], [], []
+            buckets[key] = (mels, louds, names)
+        return records
 
     # ── public inference methods ──────────────────────────────────────────────
 
@@ -392,6 +419,8 @@ class SoundAQnet:
         loudness_dir: str | Path,
         batch_size: int = 32,
         show_progress: bool = True,
+        resume: bool = False,
+        paq_output_dir: str | Path | None = None,
     ) -> pd.DataFrame:
         """Run inference on directories of pre-extracted ``.npy`` feature files.
 
@@ -405,6 +434,10 @@ class SoundAQnet:
                          Larger values are faster (up to GPU memory limits).
                          Default 32.  Try 64–128 for a GPU, 8–16 for CPU.
         show_progress  : show a ``tqdm`` progress bar (default ``True``).
+        resume         : if ``True``, skip clips whose output ``.txt`` file
+                         already exists in *paq_output_dir* (default ``False``).
+        paq_output_dir : required when *resume=True*; the directory that holds
+                         ``<clip>_scene_PAQ.txt`` files from a previous run.
 
         Returns
         -------
@@ -419,26 +452,34 @@ class SoundAQnet:
         Examples
         --------
         >>> df = model.predict(mel_dir="mel/", loudness_dir="loudness/")
-        >>> # Larger batch for GPU:
+        >>> # Resume a partially-completed run:
         >>> df = model.predict(mel_dir="mel/", loudness_dir="loudness/",
-        ...                    batch_size=64)
-        >>> df.columns.tolist()
-        ['clip_id', 'scene', 'isop', 'isoe', 'pleasant', ..., 'event_probs']
+        ...                    resume=True,
+        ...                    paq_output_dir="SoundAQnet_scene_ISOPl_ISOEv_PAQ8DAQs/")
         """
         mel_dir = Path(mel_dir)
         loudness_dir = Path(loudness_dir)
+        skip_dir = Path(paq_output_dir) if (resume and paq_output_dir) else None
 
         mel_files = sorted(mel_dir.glob("*.npy"))
         if not mel_files:
             raise ValueError(f"No .npy files found in {mel_dir}")
 
         records: list[dict] = []
-        mel_list: list[np.ndarray] = []
-        loud_list: list[np.ndarray] = []
-        names: list[str] = []
+        # Bucket clips by their time-axis length so that np.stack inside
+        # _flush_batch always receives arrays of identical shape.
+        # buckets: frame_count -> ([mels], [louds], [names])
+        buckets: dict = {}
 
         with tqdm(total=len(mel_files), desc="Inference", disable=not show_progress) as pbar:
             for mel_file in mel_files:
+                # Resume: skip clips already written in a previous run.
+                if skip_dir is not None:
+                    done = skip_dir / f"{mel_file.stem}_scene_PAQ.txt"
+                    if done.exists():
+                        pbar.update(1)
+                        continue
+
                 loud_file = loudness_dir / mel_file.name
                 if not loud_file.exists():
                     print(f"[warn] Missing loudness file for {mel_file.name} — skipped.")
@@ -448,18 +489,17 @@ class SoundAQnet:
                 mel_n = self._norm_mel(np.load(str(mel_file)).astype(np.float32))
                 loud_n = self._norm_loud(np.load(str(loud_file)).astype(np.float32))
 
-                mel_list.append(mel_n)
-                loud_list.append(loud_n)
-                names.append(mel_file.stem)
+                key = mel_n.shape[0]
+                if key not in buckets:
+                    buckets[key] = ([], [], [])
+                buckets[key][0].append(mel_n)
+                buckets[key][1].append(loud_n)
+                buckets[key][2].append(mel_file.stem)
 
-                if len(mel_list) == batch_size:
-                    records += self._flush_batch(mel_list, loud_list, names)
-                    mel_list, loud_list, names = [], [], []
-
+                records += self._flush_buckets(buckets, batch_size, force=False)
                 pbar.update(1)
 
-            if mel_list:
-                records += self._flush_batch(mel_list, loud_list, names)
+            records += self._flush_buckets(buckets, batch_size, force=True)
 
         return pd.DataFrame(records)
 
@@ -518,9 +558,7 @@ class SoundAQnet:
             raise ValueError(f"No supported audio files found in {audio_dir or audio_files}")
 
         records: list[dict] = []
-        mel_list: list[np.ndarray] = []
-        loud_list: list[np.ndarray] = []
-        names: list[str] = []
+        buckets: dict = {}
 
         print(
             f"Extracting features for {len(files)} file(s) "
@@ -534,18 +572,19 @@ class SoundAQnet:
                 mel = extract_mel_from_file(audio_file, num_workers=1)
                 loud = extract_loudness_from_file(audio_file, num_workers=1)
 
-                mel_list.append(self._norm_mel(mel))
-                loud_list.append(self._norm_loud(loud))
-                names.append(audio_file.stem)
+                mel_n = self._norm_mel(mel)
+                loud_n = self._norm_loud(loud)
+                key = mel_n.shape[0]
+                if key not in buckets:
+                    buckets[key] = ([], [], [])
+                buckets[key][0].append(mel_n)
+                buckets[key][1].append(loud_n)
+                buckets[key][2].append(audio_file.stem)
 
-                if len(mel_list) == batch_size:
-                    records += self._flush_batch(mel_list, loud_list, names)
-                    mel_list, loud_list, names = [], [], []
-
+                records += self._flush_buckets(buckets, batch_size, force=False)
                 pbar.update(1)
 
-            if mel_list:
-                records += self._flush_batch(mel_list, loud_list, names)
+            records += self._flush_buckets(buckets, batch_size, force=True)
 
         return pd.DataFrame(records)
 
@@ -608,6 +647,24 @@ def main() -> int:
         help="Directory to save per-clip scene / ISO / PAQ .txt files.",
     )
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=32,
+        help=(
+            "Inference batch size (default 32). "
+            "Clips are grouped by length so larger values are always safe. "
+            "Try 64-128 on GPU, 8-16 on CPU."
+        ),
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Skip clips whose output file already exists in --paq_output_dir. "
+            "Useful for resuming a partially-completed run."
+        ),
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default=None,
@@ -632,6 +689,9 @@ def main() -> int:
     df = model.predict(
         mel_dir=args.dataset_mel,
         loudness_dir=args.dataset_wav_loudness,
+        batch_size=args.batch_size,
+        resume=args.resume,
+        paq_output_dir=args.paq_output_dir if args.resume else None,
     )
 
     # ── Write legacy text-file outputs (backward compatible) ──────────────────

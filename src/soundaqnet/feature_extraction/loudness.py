@@ -362,7 +362,7 @@ def _extract_loudness_posix(
     input_dir: Path,
     output_dir: Path,
     num_workers: int = 4,
-    chunk_size: int = 5000,
+    chunk_size: int = 10000,
 ) -> None:
     """ISO 532-1 loudness extraction via mosqito (macOS / Linux).
 
@@ -610,7 +610,7 @@ def extract_loudness(
     output_dir: str | Path,
     tmp_dir: str | Path | None = None,
     num_workers: int = 4,
-    chunk_size: int = 5000,
+    chunk_size: int = 10000,
     target_sr: int = 48000,
     method: str = "Varying",
     sound_field: str = "Free",
@@ -718,7 +718,7 @@ def main() -> int:
     )
     parser.add_argument("--target_sr", type=int, default=48000, choices=[32000, 44100, 48000])
     parser.add_argument("--num_workers", type=int, default=os.cpu_count() or 4)
-    parser.add_argument("--chunk_size", type=int, default=5000)
+    parser.add_argument("--chunk_size", type=int, default=10000)
     parser.add_argument("--start_idx", type=int, default=0)
     parser.add_argument("--end_idx", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
