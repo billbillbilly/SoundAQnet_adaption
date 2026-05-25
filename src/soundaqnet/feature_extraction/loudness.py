@@ -13,8 +13,9 @@ macOS / Linux
     Uses **mosqito** (``pip install mosqito>=1.2.0``), a pure-Python
     implementation of the ISO 532-1 Zwicker method.  Results are
     numerically comparable to the .exe for most practical inputs.
-    mosqito's heavy work is numpy/scipy FFT-based and releases the GIL,
-    so ``ThreadPoolExecutor`` delivers real parallel speedup.
+    mosqito contains Python-level loops (bark-band filtering, pattern
+    transformation) that hold the GIL, so ``ProcessPoolExecutor`` is used
+    to bypass it and achieve true parallel speedup.
 
 Public API
 ----------
@@ -32,9 +33,11 @@ CLI
 
 Parallelism
 -----------
-    Both batch and multi-file APIs parallelise over files with
-    ``ThreadPoolExecutor``.  The Pa calibration scale is computed once
-    per process (cached at module level) and reused by all threads.
+    Windows: files parallelised over threads (``ThreadPoolExecutor``) since
+    the .exe subprocess releases the GIL immediately.
+    macOS / Linux: files parallelised over processes (``ProcessPoolExecutor``)
+    to bypass mosqito's GIL-holding Python loops.  The Pa calibration scale
+    is passed as a plain float argument so each worker is fully independent.
 """
 
 from __future__ import annotations
@@ -48,7 +51,7 @@ import tempfile
 import threading
 import traceback
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from importlib.resources import files as _pkg_files
 from pathlib import Path
 
@@ -320,17 +323,35 @@ def _digital_to_pa_scale() -> float:
 def _load_as_pa(audio_path: str, scale: float) -> tuple[np.ndarray, int]:
     """Load any supported audio format as mono 48 kHz, scaled to Pascal.
 
-    Uses librosa so mp3/flac/ogg/m4a/aiff are all handled transparently.
+    Uses soundfile for WAV/FLAC files already at 48 kHz (faster path), and
+    falls back to librosa for other formats or sample rates that need
+    resampling.
     """
-    x, _ = librosa.load(str(audio_path), sr=_TARGET_SR_POSIX, mono=True)
+    path = str(audio_path)
+    suffix = Path(path).suffix.lower()
+    native_formats = {".wav", ".flac", ".ogg"}
+
+    if suffix in native_formats:
+        try:
+            info = soundfile.info(path)
+            if info.samplerate == _TARGET_SR_POSIX:
+                x, _ = soundfile.read(path, dtype="float64", always_2d=False)
+                if x.ndim > 1:
+                    x = x.mean(axis=1)
+                return x * scale, _TARGET_SR_POSIX
+        except Exception:
+            pass  # fall through to librosa
+
+    x, _ = librosa.load(path, sr=_TARGET_SR_POSIX, mono=True)
     return x.astype(np.float64) * scale, _TARGET_SR_POSIX
 
 
 def _posix_worker_one(args: tuple) -> dict:
-    """Thread worker: extract mosqito loudness for one file.
+    """Process worker: extract mosqito loudness for one file.
 
-    Parameters are packed in a tuple for easy use with ``map``/``submit``.
-    Returns a status dict matching the Windows ``process_one`` contract.
+    Parameters are packed in a tuple so the function is picklable for use
+    with ProcessPoolExecutor.  Returns a status dict matching the Windows
+    ``process_one`` contract.
     """
     audio_path_str, out_npy_str, scale = args
     try:
@@ -363,6 +384,8 @@ def _extract_loudness_posix(
     output_dir: Path,
     num_workers: int = 4,
     chunk_size: int = 10000,
+    start_idx: int = 0,
+    end_idx: int | None = None,
 ) -> None:
     """ISO 532-1 loudness extraction via mosqito (macOS / Linux).
 
@@ -371,15 +394,17 @@ def _extract_loudness_posix(
     Saves each file as shape ``(T, 1)`` — total loudness in sone over time —
     matching the Windows exe output format used during model training.
 
-    mosqito's FFT/numpy operations release the GIL so multiple threads can
-    run mosqito concurrently for real parallel speedup.
+    Uses ``ProcessPoolExecutor`` so that mosqito's Python-level computation
+    runs in separate OS processes, bypassing the GIL for true parallelism.
 
     Parameters
     ----------
-    input_dir   : directory of audio files.
+    input_dir   : directory of audio files (searched recursively).
     output_dir  : directory for ``.npy`` output files.
-    num_workers : parallel worker threads (default 4).
-    chunk_size  : files submitted to the thread pool per chunk (caps memory).
+    num_workers : parallel worker processes (default 4).
+    chunk_size  : files submitted to the process pool per chunk (caps memory).
+    start_idx   : first file index to process (0-based, over the sorted list).
+    end_idx     : one-past-last file index (None = process to the end).
     """
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -392,12 +417,21 @@ def _extract_loudness_posix(
         f"(from {_calibration_wav().name} at {_CAL_DB} dB SPL)"
     )
 
-    audio_files = sorted(f for f in input_dir.iterdir() if f.suffix.lower() in SUPPORTED_EXTS)
+    # Recursive scan so subdirectories are included.
+    audio_files = sorted(f for f in input_dir.rglob("*") if f.suffix.lower() in SUPPORTED_EXTS)
+
+    total_found = len(audio_files)
+    _end = end_idx if end_idx is not None else total_found
+    _end = min(_end, total_found)
+    _start = max(0, start_idx)
+    if _start > 0 or _end < total_found:
+        print(f"[mosqito] Slicing file list [{_start}:{_end}] of {total_found} total.")
+    audio_files = audio_files[_start:_end]
 
     # Skip already-completed outputs.
     todo = [f for f in audio_files if not (output_dir / (f.stem + ".npy")).exists()]
     print(
-        f"[mosqito] {len(audio_files)} files found; "
+        f"[mosqito] {len(audio_files)} files in slice; "
         f"{len(audio_files) - len(todo)} already done; "
         f"{len(todo)} remaining."
     )
@@ -420,8 +454,8 @@ def _extract_loudness_posix(
                 with open(str(error_log), "a") as fh:
                     fh.write(f"FILE: {result['audioFile']}\n{result['error']}\n{'='*80}\n")
     else:
-        print(f"[mosqito] Using {num_workers} worker threads.")
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        print(f"[mosqito] Using {num_workers} worker processes.")
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
             with tqdm(total=len(todo), desc="Extracting loudness") as pbar:
                 for chunk_start in range(0, len(todo), chunk_size):
                     chunk = todo[chunk_start : chunk_start + chunk_size]
@@ -477,7 +511,9 @@ def extract_loudness_from_file(
 
     Dispatches to the bundled ISO_532-1.exe on Windows, or mosqito on
     macOS / Linux.  When *audio_path* is a list and *num_workers* > 1,
-    files are processed in parallel using ``ThreadPoolExecutor``.
+    files are processed in parallel.  On macOS/Linux, ``ProcessPoolExecutor``
+    is used to bypass the GIL for mosqito's Python-level computation; on
+    Windows, ``ThreadPoolExecutor`` is used (subprocess calls release the GIL).
 
     Parameters
     ----------
@@ -494,9 +530,9 @@ def extract_loudness_from_file(
                   Windows only; mosqito always uses the time-varying method.
     sound_field : ``"Free"`` (default) or ``"Diffuse"``.
                   Windows only; mosqito always uses free-field.
-    num_workers : number of parallel worker threads when *audio_path* is a
-                  list.  Pass ``1`` for sequential processing.  Ignored for
-                  a single file.  Default ``4``.
+    num_workers : number of parallel workers when *audio_path* is a list.
+                  Pass ``1`` for sequential processing.  Ignored for a single
+                  file.  Default ``4``.
 
     Returns
     -------
@@ -550,11 +586,32 @@ def extract_loudness_from_file(
         # Sequential path.
         for path in tqdm(paths, desc="Extracting loudness", disable=single):
             results[path.stem] = _one(path)
+    elif sys.platform != "win32":
+        # macOS / Linux parallel path.
+        # Use ProcessPoolExecutor so each worker runs in its own OS process,
+        # bypassing the GIL for mosqito's Python-level computation.
+        # _posix_worker_one is module-level and therefore picklable.
+        scale = _digital_to_pa_scale()
+        tasks = [
+            (str(p), str(out.joinpath(p.stem + ".npy")) if out_str else "", scale) for p in paths
+        ]
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = {executor.submit(_posix_worker_one, t): t for t in tasks}
+            with tqdm(total=len(futures), desc="Extracting loudness") as pbar:
+                for future in as_completed(futures):
+                    res = future.result()
+                    if res["status"] == "ok" and res["output"]:
+                        arr = np.load(res["output"])
+                    else:
+                        # Re-run sequentially to surface the error cleanly.
+                        path = Path(res["audioFile"])
+                        arr = _one(path)
+                    stem = Path(res["audioFile"]).stem
+                    results[stem] = arr
+                    pbar.update(1)
     else:
-        # Parallel path — threads overlap I/O and mosqito/exe computation.
-        # mosqito's numpy/scipy FFT calls release the GIL so parallel speedup
-        # is real.  Windows workers each spawn a subprocess per file (already
-        # parallel-safe via per-thread temp dirs).
+        # Windows parallel path — subprocess calls release the GIL, so
+        # ThreadPoolExecutor is sufficient.
         def _worker(path: Path) -> tuple[str, np.ndarray]:
             return path.stem, _one(path)
 
@@ -615,11 +672,21 @@ def extract_loudness(
     method: str = "Varying",
     sound_field: str = "Free",
     overwrite: bool = False,
+    start_idx: int = 0,
+    end_idx: int | None = None,
 ) -> None:
     """
-    Extract ISO 532-1 Zwicker loudness features from all ``.wav`` files.
+    Extract ISO 532-1 Zwicker loudness features from all supported audio files.
 
-    Dispatches to ISO_532-1.exe (Windows) or mosqito (macOS/Linux).
+    Searches *input_dir* recursively.  Dispatches to ISO_532-1.exe (Windows)
+    or mosqito (macOS/Linux).
+
+    Parameters
+    ----------
+    start_idx / end_idx : process only the slice ``[start_idx:end_idx]`` of
+        the sorted file list.  Useful for splitting work across machines.
+        Chunking (``chunk_size``) is handled internally — do not use these
+        to approximate chunking.
     """
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -628,7 +695,7 @@ def extract_loudness(
     if sys.platform != "win32":
         if tmp_dir is not None:
             warnings.warn("tmp_dir is ignored on macOS/Linux (mosqito back-end).", stacklevel=2)
-        _extract_loudness_posix(input_dir, output_dir, num_workers, chunk_size)
+        _extract_loudness_posix(input_dir, output_dir, num_workers, chunk_size, start_idx, end_idx)
         return
 
     # Windows path ─────────────────────────────────────────────────────────────
@@ -647,7 +714,15 @@ def extract_loudness(
     createDirs(tmp_root)
 
     audioFiles = sorted(listFnames(str(input_dir)))
-    print(f"Found {len(audioFiles)} audio files ({', '.join(SUPPORTED_EXTS)})")
+    total_found = len(audioFiles)
+    print(f"Found {total_found} audio files ({', '.join(SUPPORTED_EXTS)})")
+
+    _end = end_idx if end_idx is not None else total_found
+    _end = min(_end, total_found)
+    _start = max(0, start_idx)
+    if _start > 0 or _end < total_found:
+        print(f"Slicing file list [{_start}:{_end}] of {total_found} total.")
+    audioFiles = audioFiles[_start:_end]
 
     if not overwrite:
         existing = {
@@ -737,6 +812,8 @@ def main() -> int:
         method=args.method,
         sound_field=args.sound_field,
         overwrite=args.overwrite,
+        start_idx=args.start_idx,
+        end_idx=args.end_idx,
     )
     return 0
 
