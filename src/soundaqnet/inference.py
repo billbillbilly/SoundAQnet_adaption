@@ -71,7 +71,7 @@ from soundaqnet.framework import config
 
 # Internal PyTorch model (renamed to avoid clash with the public SoundAQnet class)
 from soundaqnet.framework.models_pytorch import SoundAQnet as _SoundAQnetModel
-from soundaqnet.framework.utilities import calculate_scalar, create_folder, scale
+from soundaqnet.framework.utilities import create_folder, scale
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
@@ -153,8 +153,10 @@ def _load_norm_stats() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         mel_data = pickle.load(fh, encoding="bytes")
     with open(str(data_pkg / "norm_loudness.pickle"), "rb") as fh:
         loud_data = pickle.load(fh, encoding="bytes")
-    mean_mel, std_mel = calculate_scalar(mel_data)
-    mean_loud, std_loud = calculate_scalar(loud_data)
+    mean_mel = np.asarray(mel_data["mean"], dtype=np.float32)
+    std_mel = np.asarray(mel_data["std"], dtype=np.float32)
+    mean_loud = np.asarray(loud_data["mean"], dtype=np.float32)
+    std_loud = np.asarray(loud_data["std"], dtype=np.float32)
     return mean_mel, std_mel, mean_loud, std_loud
 
 
