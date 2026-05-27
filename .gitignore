@@ -35,9 +35,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Project-specific: large model weights (download separately)
-src/soundaqnet/models/*.pth
-
 # Intermediate feature extraction outputs
 *.hdf5
 *.h5
