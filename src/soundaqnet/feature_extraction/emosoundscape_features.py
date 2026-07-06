@@ -12,7 +12,6 @@ can be used for inference from arbitrary audio through the same code path.
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 
 import numpy as np
@@ -184,7 +183,9 @@ def extract_emosoundscape_features(
     rows = []
     for path in tqdm(audio_files, desc="Emo features", disable=not show_progress):
         vec = extract_emosoundscape_features_from_file(path)
-        rows.append({"fileName": Path(path).name, **dict(zip(EMOSOUNDSCAPE_NATIVE_FEATURE_NAMES, vec))})
+        rows.append(
+            {"fileName": Path(path).name, **dict(zip(EMOSOUNDSCAPE_NATIVE_FEATURE_NAMES, vec))}
+        )
     df = pd.DataFrame(rows)
     if output_csv is not None:
         Path(output_csv).parent.mkdir(parents=True, exist_ok=True)

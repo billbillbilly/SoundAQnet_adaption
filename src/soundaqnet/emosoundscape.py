@@ -242,7 +242,9 @@ class EmoSoundscape:
             for name, row in zip(names, pred)
         ]
 
-    def predict_sample(self, features: np.ndarray, clip_id: str = "sample") -> dict[str, float | str]:
+    def predict_sample(
+        self, features: np.ndarray, clip_id: str = "sample"
+    ) -> dict[str, float | str]:
         """Predict one feature vector or ``(54, 30)`` feature patch."""
         x = np.asarray(features, dtype=np.float32)
         if x.ndim == 1:
@@ -387,7 +389,9 @@ def main() -> int:
         return 0
 
     if args.feature_dir is None and args.audio_dir is None and args.audio_file is None:
-        parser.error("Specify --audio_dir, --audio_file, or --feature_dir unless --list-models is used")
+        parser.error(
+            "Specify --audio_dir, --audio_file, or --feature_dir unless --list-models is used"
+        )
 
     try:
         model = EmoSoundscape(args.model, device=args.device)

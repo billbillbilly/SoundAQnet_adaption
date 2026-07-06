@@ -158,8 +158,7 @@ def test_inference_module():
 @requires_torch
 def test_emosoundscape_module():
     """Emo-Soundscape valence/arousal API is importable."""
-    from soundaqnet import EmoSoundscape
-    from soundaqnet import emosoundscape
+    from soundaqnet import EmoSoundscape, emosoundscape
     from soundaqnet.framework.emosoundscape_models import EmoSoundscapeCNN
 
     assert EmoSoundscape is not None
@@ -188,9 +187,7 @@ def test_load_aq_outputs_reads_scene_and_iso_order(tmp_path):
 
     out = tmp_path / "clip_a_scene_PAQ.txt"
     out.write_text(
-        "park\n"
-        "0.25\t-0.75\n"
-        "1.0\t2.0\t3.0\t4.0\t5.0\t4.5\t3.5\t2.5\n",
+        "park\n" "0.25\t-0.75\n" "1.0\t2.0\t3.0\t4.0\t5.0\t4.5\t3.5\t2.5\n",
         encoding="utf-8",
     )
 

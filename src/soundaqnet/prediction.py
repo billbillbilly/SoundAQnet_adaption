@@ -48,7 +48,9 @@ def load_aq_outputs(paq_dir: str | Path) -> pd.DataFrame:
 
     for p in tqdm(files, total=len(files)):
         clip_id = p.name.split("_scene_PAQ.txt")[0]
-        lines = [line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+        lines = [
+            line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
         if len(lines) < 2:
             raise ValueError(f"Expected at least ISO and PAQ lines in {p}")
 
