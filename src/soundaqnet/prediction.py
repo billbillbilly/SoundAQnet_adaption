@@ -33,6 +33,7 @@ def load_aq_outputs(paq_dir: str | Path) -> pd.DataFrame:
 
     dic: dict[str, list] = {
         "id": [],
+        "scene": [],
         "ISOEvs": [],
         "ISOPls": [],
         "pleasant": [],
@@ -47,13 +48,31 @@ def load_aq_outputs(paq_dir: str | Path) -> pd.DataFrame:
 
     for p in tqdm(files, total=len(files)):
         clip_id = p.name.split("_scene_PAQ.txt")[0]
-        df = pd.read_csv(p, sep=" ")
-        ISOEvs, ISOPls = df.iloc[0, 0].split("\t")
-        pleasant, eventful, chaotic, vibrant, uneventful, calm, annoying, monotonous = df.iloc[
-            1, 0
-        ].split("\t")
+        lines = [line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+        if len(lines) < 2:
+            raise ValueError(f"Expected at least ISO and PAQ lines in {p}")
+
+        # Current soundaqnet-infer output is:
+        #   scene
+        #   isop<TAB>isoe
+        #   pleasant<TAB>eventful<TAB>...
+        # Older files may omit the scene line, so keep them readable.
+        if len(lines) >= 3:
+            scene = lines[0]
+            iso_line = lines[1]
+            paq_line = lines[2]
+        else:
+            scene = ""
+            iso_line = lines[0]
+            paq_line = lines[1]
+
+        ISOPls, ISOEvs = iso_line.split("\t")
+        pleasant, eventful, chaotic, vibrant, uneventful, calm, annoying, monotonous = (
+            paq_line.split("\t")
+        )
 
         dic["id"].append(clip_id)
+        dic["scene"].append(scene)
         dic["ISOPls"].append(float(ISOPls))
         dic["ISOEvs"].append(float(ISOEvs))
         dic["pleasant"].append(float(pleasant))

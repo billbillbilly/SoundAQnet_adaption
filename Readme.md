@@ -8,12 +8,14 @@
 [![CI](https://github.com/billbillbilly/SoundAQnet_adaption/actions/workflows/publish.yml/badge.svg?branch=package)](https://github.com/billbillbilly/SoundAQnet_adaption/actions)
 
 `soundaqnet` is a pip-installable Python package that predicts soundscape perceptual
-quality from audio clips using the **SoundAQnet** multi-task deep learning model (Hou et al., 2026).
-Given a mono audio clip it outputs:
+quality from audio clips using machine learning models (Hou et al., 2026; Kranabetter et al., 2022).
+It accepts common audio formats (`.wav`, `.mp3`, `.flac`, `.ogg`, `.aiff`, `.aif`,
+`.m4a`, `.opus`) and outputs:
 
 - **Acoustic scene** — `urban`, `suburban`, or `park`
 - **Audio events** — probabilities for 15 event classes
 - **ISO Pleasantness / Eventfulness** [−1,1]
+- **Valence / Arousal** [−1,1]
 - **PAQ 8-D affective quality** [1,5] — pleasant, eventful, chaotic, vibrant, uneventful, calm, annoying, monotonous
 
 Works on **Windows**, **macOS**, and **Linux**.
@@ -22,30 +24,61 @@ Works on **Windows**, **macOS**, and **Linux**.
 
 ---
 
-## Installation
+## 1 Installation
 
-Install PyTorch **first** so the GPU/CPU variant is resolved correctly, then install `soundaqnet`.
+Requires **Python 3.10+**. `soundaqnet` installs the audio, data, and
+Emo-Soundscape dependencies it needs, including `librosa`, `soundfile`,
+`scikit-learn`, `torchlibrosa`, and `mosqito` on macOS/Linux.
 
-### CPU (any platform)/ Apple Silicon (MPS)
+For GPU acceleration, install the matching PyTorch build **before**
+`soundaqnet`; otherwise pip will install the default CPU-compatible PyTorch
+packages from PyPI.
+
+### CPU / Apple Silicon (MPS)
 ```bash
 pip install torch torchvision torchaudio
 pip install soundaqnet
 ```
 
-### GPU — CUDA
+### NVIDIA GPU — CUDA 12.1
 ```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 pip install soundaqnet
 ```
 
-> **macOS / Linux**: loudness extraction uses [mosqito](https://github.com/Eomys/MoSQITo) (installed automatically).  
-> **Windows**: uses the bundled `ISO_532-1.exe` binary — no extra install required.
+### From source
+```bash
+git clone https://github.com/billbillbilly/SoundAQnet_adaption.git
+cd SoundAQnet_adaption
+pip install -e ".[dev]"
+```
+
+Notes:
+
+- **Windows** loudness extraction uses the bundled `ISO_532-1.exe`.
+- **macOS/Linux** loudness extraction uses `mosqito`, installed automatically.
+- **NumPy 2.x is not supported** by the current audio stack, so the package pins `numpy<2`.
 
 ---
 
-## Quick start
+## 2 Quick start
 
-### Python API
+### 2.1 SoundAQnet
+
+Predict acoustic scene, audio-event probabilities, ISO Pleasantness/Eventfulness,
+and PAQ 8-D affective quality.
+
+| Column | Type | Description |
+|---|---|---|
+| `clip_id` | str | File stem (no extension) |
+| `scene` | str | `"urban"` / `"suburban"` / `"park"` |
+| `isop` | float | ISO Pleasantness −1 … +1 |
+| `isoe` | float | ISO Eventfulness −1 … +1 |
+| `pleasant` … `monotonous` | float | PAQ 8-D affective quality scores |
+| `top_events` | list\[str\] | Top-5 audio event labels by probability |
+| `event_probs` | dict | `{label: probability}` for all 15 event classes |
+
+#### Python API
 
 ```python
 from soundaqnet import SoundAQnet
@@ -74,7 +107,7 @@ df = model.predict_from_audio(
 print(df[["clip_id", "scene", "isop", "isoe"]].head())
 ```
 
-### CLI
+#### CLI
 
 ```bash
 # Step 1 — extract features (parallel)
@@ -82,69 +115,93 @@ soundaqnet-extract-mel      --input_dir audio/ --output_dir mel/      --num_work
 soundaqnet-extract-loudness --input_dir audio/ --output_dir loudness/ --num_workers 4
 
 # Step 2 — run inference
-soundaqnet-infer --dataset_mel mel/ --dataset_wav_loudness loudness/
+soundaqnet-infer \
+    --dataset_mel mel/ \
+    --dataset_wav_loudness loudness/ \
+    --batch_size 32
 
 # Step 3 — convert to CSV
 soundaqnet-to-df \
-    --results_dir SoundAQnet_scene_ISOPl_ISOEv_PAQ8DAQs \
-    --events_dir  SoundAQnet_event_probability \
-    --output      predictions.csv
+    --paq_dir SoundAQnet_scene_ISOPl_ISOEv_PAQ8DAQs \
+    --event_dir SoundAQnet_event_probability \
+    --output_prefix soundAQ
 ```
 
----
+The converter writes `soundAQ.csv` (including `scene`, ISO, and PAQ columns),
+`soundAQ_stats.csv`, and `soundAQEventRank.csv` depending on `--export`.
 
-## Feature extraction API
+### 2.2 EmoSoundscape
 
-Both functions accept a **single path** or a **list of paths**, and save `.npy` files when `output_dir` is given.
+Predict valence and arousal from audio using the bundled
+`EmoS_gradient_boosting` model.
 
-```python
-from soundaqnet.feature_extraction import (
-    extract_mel_from_file, extract_loudness_from_file,
-    extract_mel, extract_loudness,
-)
-
-# Single file → numpy array
-mel  = extract_mel_from_file("clip.wav")                # (T, 64)
-loud = extract_loudness_from_file("clip.wav")           # (T, 1)
-
-# Multiple files → dict {stem: array}, processed in parallel
-mels  = extract_mel_from_file(
-    ["a.wav", "b.wav"], output_dir="mel/", num_workers=4)
-louds = extract_loudness_from_file(
-    ["a.wav", "b.wav"], output_dir="loudness/", num_workers=4)
-
-# Batch directory — resumes automatically (skips completed files)
-extract_mel("audio/",      "mel/",      num_workers=4)
-extract_loudness("audio/", "loudness/", num_workers=4)
-```
-
----
-
-## Inference API
-
-| Method | Input | Returns |
-|---|---|---|
-| `predict_sample(mel, loudness)` | numpy arrays `(T, 64)` and `(T, 1)` | `dict` |
-| `predict(mel_dir, loudness_dir, batch_size)` | directories of `.npy` files | `pd.DataFrame` |
-| `predict_from_audio(audio_dir, batch_size, num_workers)` | audio directory | `pd.DataFrame` |
-
-### Output columns
+The 122-feature vector summarizes RMS/energy, zero-crossing rate, spectral
+shape, MFCCs, chroma, and log-mel bands using frame-level mean and standard
+deviation. The extractor uses 44.1 kHz mono audio, 4096-sample frames, and a
+2048-sample hop.
 
 | Column | Type | Description |
 |---|---|---|
 | `clip_id` | str | File stem (no extension) |
-| `scene` | str | `"urban"` / `"suburban"` / `"park"` |
-| `isop` | float | ISO Pleasantness −1 … +1 |
-| `isoe` | float | ISO Eventfulness −1 … +1 |
-| `pleasant` … `monotonous` | float | PAQ 8-D affective quality scores |
-| `top_events` | list\[str\] | Top-5 audio event labels by probability |
-| `event_probs` | dict | `{label: probability}` for all 15 event classes |
+| `valence` | float | valence −1 … +1 |
+| `arousal` | float | arousal −1 … +1 |
+
+#### Python API
+
+```python
+from soundaqnet import EmoSoundscape
+
+model = EmoSoundscape()
+
+# Single file or explicit list
+df = model.predict_from_audio(audio_files=["clip.wav"])
+print(df[["clip_id", "valence", "arousal"]])
+
+# Batch from a directory
+df = model.predict_from_audio(audio_dir="audio/")
+
+# Feature extraction
+from soundaqnet.feature_extraction import (
+    extract_emosoundscape_features,
+    extract_emosoundscape_features_from_file,
+)
+# Single file -> numpy array, shape (122,)
+features = extract_emosoundscape_features_from_file("clip.wav")
+result = model.predict_sample(features)
+# Batch directory -> DataFrame, optionally saved to CSV
+feature_df = extract_emosoundscape_features(
+    audio_dir="audio/",
+    output_csv="emosoundscape_features.csv",
+)
+```
+
+#### CLI
+
+```bash
+soundaqnet-emosoundscape \
+    --audio_file clip.wav \
+    --output_csv emosoundscape_predictions.csv
+```
 
 ---
 
-## Bundled models
+## 3 Tutorials
 
-Four pre-trained checkpoints are included.  Pass the short name to `SoundAQnet()`:
+Interactive Jupyter notebooks live in [`tutorials/`](tutorials/):
+
+| Notebook | Contents |
+|---|---|
+| [`01_python_api.ipynb`](tutorials/01_python_api.ipynb) | SoundAQnet feature extraction/inference, EmoSoundscape valence/arousal, bundled models, circumplex plots |
+| [`02_cli.ipynb`](tutorials/02_cli.ipynb) | SoundAQnet CLI pipeline, EmoSoundscape CLI inference, output inspection, ready-to-run shell script |
+
+---
+
+## 4 Bundled models
+
+Bundled model names can be passed directly to `SoundAQnet(...)` or
+`EmoSoundscape(...)`.
+
+### 4.1 SoundAQnet checkpoints
 
 | Model name | ASC | AEC | PAQ F1 |
 |---|---|---|---|
@@ -159,26 +216,48 @@ model = SoundAQnet("SoundAQnet_ASC96_AEC95_PAQ1052")
 model = SoundAQnet("/path/to/my_finetuned.pth")
 ```
 
+### 4.2 EmoSoundscape checkpoint
+
+| Model name | Input | Intended use | 10-fold CV R2 |
+|---|---|---|---|
+| `EmoS_gradient_boosting` **(default)** | 122 package-native features from audio | New audio inference | mean `0.796`, valence `0.696`, arousal `0.895` |
+
+```python
+from soundaqnet import EmoSoundscape
+
+model = EmoSoundscape("EmoS_gradient_boosting")
+# or load your own model trained on package-native features:
+model = EmoSoundscape("/path/to/my_model.pkl")
+```
+
 ---
 
-## Tutorials
 
-Interactive Jupyter notebooks live in [`tutorials/`](tutorials/):
+## 5 Method note
 
-| Notebook | Contents |
-|---|---|
-| [`01_python_api.ipynb`](tutorials/01_python_api.ipynb) | Feature extraction, single-sample and batch inference, end-to-end API, circumplex plots |
-| [`02_cli.ipynb`](tutorials/02_cli.ipynb) | Full CLI pipeline, output inspection, ready-to-run shell script |
+### Clip length
+
+The Emo-Soundscapes dataset contains 6-second excerpts. The extractor can
+summarize audio of any length, but predictions are most trustworthy for clips
+near that duration and with a consistent soundscape. For longer recordings,
+split into 6-second windows, predict each window, then average the predictions
+or keep the window-level valence/arousal time series.
+
+### Default Emo-Soundscape model
+
+Use `EmoS_gradient_boosting` for real audio files. You can also load your own
+compatible model with `EmoSoundscape("/path/to/model.pkl")`.
 
 ---
 
-## Platform notes
+
+## 6 Platform notes
 
 | Platform | Loudness backend | GPU |
 |---|---|---|
-| Windows | Bundled `ISO_532-1.exe` (MATLAB-compiled ISO 532-1) | CUDA |
-| macOS Intel / Apple Silicon | mosqito (pure Python) | MPS |
-| Linux | mosqito (pure Python) | CUDA |
+| Windows | Bundled `ISO_532-1.exe` (MATLAB-compiled ISO 532-1) | CUDA / CPU |
+| macOS Intel / Apple Silicon | mosqito (pure Python) | MPS / CPU |
+| Linux | mosqito (pure Python) | CUDA / CPU |
 
 Both backends produce numerically equivalent output using the same 1 kHz / 60 dB SPL calibration reference and the ISO 532-1 Zwicker time-varying method at 48 kHz.
 
@@ -189,13 +268,19 @@ Both backends produce numerically equivalent output using the same 1 kHz / 60 dB
 ```bash
 git clone https://github.com/billbillbilly/SoundAQnet_adaption.git -b package
 cd SoundAQnet_adaption
-pip install -e ".[dev]"
+pip install -e ".[package]"
 pytest tests/
 ```
 
 ---
 
 ## Citation
+
+If you use the SoundAQnet model, cite Hou et al. If you use the
+Emo-Soundscape valence/arousal module or trained Emo-Soundscapes models, also
+cite the Emo-Soundscapes dataset, soundscape emotion recognition, and
+Audio Metaphor 2.0 papers.
+The bundled Emo-Soundscape reference PDFs are in `docs/emosoundscape/`.
 
 ```bibtex
 @article{hou2026soundscape,
@@ -206,6 +291,29 @@ pytest tests/
              Botteldooren, Dick},
   journal = {IEEE Transactions on Multimedia},
   year    = {2026}
+}
+
+@inproceedings{fan2017emosoundscapes,
+  title     = {Emo-Soundscapes: A Dataset for Soundscape Emotion Recognition},
+  author    = {Fan, Jianyu and Thorogood, Miles and Pasquier, Philippe},
+  booktitle = {Proceedings of the International Conference on Affective
+               Computing and Intelligent Interaction},
+  year      = {2017}
+}
+
+@inproceedings{fan2018soundscape,
+  title  = {SOUNDSCAPE EMOTION RECOGNITION VIA DEEP LEARNING},
+  author = {Fan, Jianyu and Tung, Fred and Li, William and Pasquier, Philippe},
+  year   = {2018}
+}
+
+@misc{kranabetter2022audiometaphor,
+  title  = {Audio Metaphor 2.0: An Improved Classification and Segmentation
+            Pipeline for Generative Sound Design Systems},
+  author = {Kranabetter, Joshua and Carpenter, Craig and Tchemeube, Renaud
+            Bougueng and Pasquier, Philippe and Thorogood, Miles},
+  year   = {2022},
+  note   = {Bundled reference PDF: docs/emosoundscape/AudioMetaphor2.0.pdf}
 }
 ```
 

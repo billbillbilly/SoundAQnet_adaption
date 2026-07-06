@@ -39,3 +39,8 @@ Thumbs.db
 *.hdf5
 *.h5
 tmp/
+
+# Local datasets and training artifacts
+datasets/
+downloads/
+outputs/

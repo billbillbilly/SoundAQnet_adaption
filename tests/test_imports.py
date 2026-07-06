@@ -155,6 +155,19 @@ def test_inference_module():
     assert len(inference.BUNDLED_MODELS) == 4
 
 
+@requires_torch
+def test_emosoundscape_module():
+    """Emo-Soundscape valence/arousal API is importable."""
+    from soundaqnet import EmoSoundscape
+    from soundaqnet import emosoundscape
+    from soundaqnet.framework.emosoundscape_models import EmoSoundscapeCNN
+
+    assert EmoSoundscape is not None
+    assert callable(emosoundscape.main)
+    assert callable(emosoundscape.resolve_emosoundscape_model_path)
+    assert EmoSoundscapeCNN(out_dim=2) is not None
+
+
 @requires_tqdm
 @requires_pandas
 def test_prediction_module():
@@ -165,3 +178,40 @@ def test_prediction_module():
     assert callable(prediction.predictions_to_dataframe)
     assert callable(prediction.load_aq_outputs)
     assert callable(prediction.load_event_outputs)
+
+
+@requires_tqdm
+@requires_pandas
+def test_load_aq_outputs_reads_scene_and_iso_order(tmp_path):
+    """AQ converter parses the current soundaqnet-infer text output format."""
+    from soundaqnet.prediction import load_aq_outputs
+
+    out = tmp_path / "clip_a_scene_PAQ.txt"
+    out.write_text(
+        "park\n"
+        "0.25\t-0.75\n"
+        "1.0\t2.0\t3.0\t4.0\t5.0\t4.5\t3.5\t2.5\n",
+        encoding="utf-8",
+    )
+
+    df = load_aq_outputs(tmp_path)
+
+    assert list(df.columns) == [
+        "id",
+        "scene",
+        "ISOEvs",
+        "ISOPls",
+        "pleasant",
+        "eventful",
+        "chaotic",
+        "vibrant",
+        "uneventful",
+        "calm",
+        "annoying",
+        "monotonous",
+    ]
+    row = df.iloc[0]
+    assert row["id"] == "clip_a"
+    assert row["scene"] == "park"
+    assert row["ISOPls"] == 0.25
+    assert row["ISOEvs"] == -0.75

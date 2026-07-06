@@ -7,9 +7,6 @@ This module is imported by ``soundaqnet/__init__.py`` on every package import.
 It emits ``warnings.warn`` for soft mismatches and raises ``ImportError`` for
 hard incompatibilities (e.g. numpy 2.x breaking audio libs).
 
-Note: DGL is no longer a dependency.  The GatedGCN graph layers are implemented
-in pure PyTorch using scatter_add_, so any PyTorch version >= 2.1.0 is supported.
-
 Validated dependency matrix
 ---------------------------
 | Package       | Required version | Notes                              |
