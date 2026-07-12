@@ -42,6 +42,8 @@ CLI
     soundaqnet-infer \\
         --dataset_mel  <mel_npy_dir>        \\
         --dataset_wav_loudness <loud_dir>   \\
+        [--output_csv soundAQ.csv]           \\
+        [--legacy_txt]                       \\
         [--model <name_or_path>]            \\
         [--list-models]
 
@@ -57,6 +59,7 @@ from __future__ import annotations
 import argparse
 import os
 import pickle
+import re
 import sys
 from importlib.resources import files as _pkg_files
 from pathlib import Path
@@ -106,6 +109,17 @@ DEFAULT_MODEL: str = BUNDLED_MODELS[0]
 
 # Audio formats accepted by predict_from_audio
 _SUPPORTED_EXTS = (".wav", ".mp3", ".flac", ".ogg", ".aiff", ".aif", ".m4a", ".opus")
+
+PAQ_COLUMNS: list[str] = [
+    "pleasant",
+    "eventful",
+    "chaotic",
+    "vibrant",
+    "uneventful",
+    "calm",
+    "annoying",
+    "monotonous",
+]
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -158,6 +172,77 @@ def _load_norm_stats() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     mean_loud = np.asarray(loud_data["mean"], dtype=np.float32)
     std_loud = np.asarray(loud_data["std"], dtype=np.float32)
     return mean_mel, std_mel, mean_loud, std_loud
+
+
+def _event_prob_column(label: str) -> str:
+    """Return a stable CSV column name for an event label."""
+    slug = re.sub(r"[^0-9A-Za-z]+", "_", label).strip("_")
+    return f"event_prob_{slug}"
+
+
+def flatten_prediction_results(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a CSV-friendly DataFrame with all SoundAQnet outputs expanded.
+
+    ``SoundAQnet.predict`` and ``predict_from_audio`` return a rich DataFrame
+    where ``top_events`` is a list and ``event_probs`` is a dict.  This helper
+    expands those nested values into plain scalar columns so callers can save
+    one complete results table without going through legacy per-clip text
+    files.
+    """
+    base_cols = ["clip_id", "scene", "isop", "isoe", *PAQ_COLUMNS]
+    rows: list[dict] = []
+
+    for _, row in df.iterrows():
+        event_probs = row.get("event_probs", {}) or {}
+        ranked_events = sorted(event_probs, key=event_probs.get, reverse=True)
+        top_events = row.get("top_events", []) or ranked_events[:5]
+
+        out = {col: row[col] for col in base_cols if col in row}
+        out["top_events"] = ";".join(str(label) for label in top_events)
+        out["event_rank"] = ";".join(str(label) for label in ranked_events)
+        for label in EVENT_LABELS:
+            out[_event_prob_column(label)] = event_probs.get(label, np.nan)
+        rows.append(out)
+
+    columns = [
+        *base_cols,
+        "top_events",
+        "event_rank",
+        *[_event_prob_column(label) for label in EVENT_LABELS],
+    ]
+    return pd.DataFrame(rows, columns=columns)
+
+
+def write_prediction_csv(df: pd.DataFrame, output_csv: str | Path) -> pd.DataFrame:
+    """Write all SoundAQnet prediction outputs to one flat CSV file."""
+    flat = flatten_prediction_results(df)
+    output_csv = Path(output_csv)
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    flat.to_csv(output_csv, index=False)
+    return flat
+
+
+def write_legacy_txt_outputs(
+    df: pd.DataFrame,
+    event_output_dir: str | Path,
+    paq_output_dir: str | Path,
+) -> None:
+    """Write the historical per-clip txt output folders."""
+    create_folder(event_output_dir)
+    create_folder(paq_output_dir)
+
+    for _, row in df.iterrows():
+        name = row["clip_id"]
+
+        event_vals = [row["event_probs"][label] for label in EVENT_LABELS]
+        txt_event = Path(event_output_dir) / f"{name}_event.txt"
+        np.savetxt(txt_event, event_vals)
+
+        txt_paq = Path(paq_output_dir) / f"{name}_scene_PAQ.txt"
+        with open(txt_paq, "w", encoding="utf-8") as fh:
+            fh.write(row["scene"] + "\n")
+            fh.write(f"{row['isop']}\t{row['isoe']}\n")
+            fh.write("\t".join(str(row[col]) for col in PAQ_COLUMNS) + "\n")
 
 
 # ── SoundAQnet high-level class ───────────────────────────────────────────────
@@ -423,6 +508,8 @@ class SoundAQnet:
         show_progress: bool = True,
         resume: bool = False,
         paq_output_dir: str | Path | None = None,
+        output_csv: str | Path | None = None,
+        flat: bool = False,
     ) -> pd.DataFrame:
         """Run inference on directories of pre-extracted ``.npy`` feature files.
 
@@ -440,11 +527,16 @@ class SoundAQnet:
                          already exists in *paq_output_dir* (default ``False``).
         paq_output_dir : required when *resume=True*; the directory that holds
                          ``<clip>_scene_PAQ.txt`` files from a previous run.
+        output_csv     : optional path for writing one flat CSV with scene,
+                         ISO/PAQ, event ranks, and all event probabilities.
+        flat           : if ``True``, return the CSV-friendly flat DataFrame
+                         instead of the rich DataFrame with nested columns.
 
         Returns
         -------
-        pandas.DataFrame  — one row per clip, columns as described in the
-        class docstring.  ``event_probs`` column contains dicts.
+        pandas.DataFrame  — one row per clip.  By default, columns are as
+        described in the class docstring and ``event_probs`` contains dicts.
+        With ``flat=True``, event probabilities are expanded to scalar columns.
 
         Raises
         ------
@@ -503,7 +595,12 @@ class SoundAQnet:
 
             records += self._flush_buckets(buckets, batch_size, force=True)
 
-        return pd.DataFrame(records)
+        df = pd.DataFrame(records)
+        if output_csv is not None:
+            write_prediction_csv(df, output_csv)
+        if flat:
+            return flatten_prediction_results(df)
+        return df
 
     def predict_from_audio(
         self,
@@ -512,6 +609,8 @@ class SoundAQnet:
         batch_size: int = 32,
         num_workers: int = 4,
         show_progress: bool = True,
+        output_csv: str | Path | None = None,
+        flat: bool = False,
     ) -> pd.DataFrame:
         """End-to-end inference: **extract features then predict**.
 
@@ -532,6 +631,10 @@ class SoundAQnet:
                          sequential extraction.
         show_progress  : show a ``tqdm`` progress bar for extraction and
                          inference (default ``True``).
+        output_csv     : optional path for writing one flat CSV with scene,
+                         ISO/PAQ, event ranks, and all event probabilities.
+        flat           : if ``True``, return the CSV-friendly flat DataFrame
+                         instead of the rich DataFrame with nested columns.
 
         Returns
         -------
@@ -588,7 +691,12 @@ class SoundAQnet:
 
             records += self._flush_buckets(buckets, batch_size, force=True)
 
-        return pd.DataFrame(records)
+        df = pd.DataFrame(records)
+        if output_csv is not None:
+            write_prediction_csv(df, output_csv)
+        if flat:
+            return flatten_prediction_results(df)
+        return df
 
     def __repr__(self) -> str:
         return f"SoundAQnet(" f"model='{Path(self.model_path).stem}', " f"device='{self.device}')"
@@ -613,13 +721,13 @@ def main() -> int:
     parser.add_argument(
         "--dataset_mel",
         type=str,
-        required=True,
+        default=None,
         help="Directory of mel .npy feature files.",
     )
     parser.add_argument(
         "--dataset_wav_loudness",
         type=str,
-        required=True,
+        default=None,
         help="Directory of loudness .npy feature files.",
     )
     parser.add_argument(
@@ -640,13 +748,34 @@ def main() -> int:
         "--event_output_dir",
         type=str,
         default=os.path.join(os.getcwd(), "SoundAQnet_event_probability"),
-        help="Directory to save per-clip event probability .txt files.",
+        help=(
+            "Directory to save per-clip event probability .txt files " "when --legacy_txt is used."
+        ),
     )
     parser.add_argument(
         "--paq_output_dir",
         type=str,
         default=os.path.join(os.getcwd(), "SoundAQnet_scene_ISOPl_ISOEv_PAQ8DAQs"),
-        help="Directory to save per-clip scene / ISO / PAQ .txt files.",
+        help=(
+            "Directory to save per-clip scene / ISO / PAQ .txt files " "when --legacy_txt is used."
+        ),
+    )
+    parser.add_argument(
+        "--output_csv",
+        type=str,
+        default=os.path.join(os.getcwd(), "soundAQ.csv"),
+        help=(
+            "Path to save one complete CSV with scene, ISO/PAQ, event ranks, "
+            "and all event probabilities (default: ./soundAQ.csv)."
+        ),
+    )
+    parser.add_argument(
+        "--legacy_txt",
+        action="store_true",
+        help=(
+            "Also write the historical per-clip .txt output folders. "
+            "This is slower and kept for backward compatibility."
+        ),
     )
     parser.add_argument(
         "--batch_size",
@@ -680,6 +809,11 @@ def main() -> int:
             print(f"  {name}")
         return 0
 
+    if args.dataset_mel is None or args.dataset_wav_loudness is None:
+        parser.error(
+            "--dataset_mel and --dataset_wav_loudness are required unless --list-models is used."
+        )
+
     try:
         model = SoundAQnet(model=args.model, device=args.device)
     except FileNotFoundError as exc:
@@ -696,39 +830,17 @@ def main() -> int:
         paq_output_dir=args.paq_output_dir if args.resume else None,
     )
 
-    # ── Write legacy text-file outputs (backward compatible) ──────────────────
-    create_folder(args.event_output_dir)
-    create_folder(args.paq_output_dir)
+    flat = write_prediction_csv(df, args.output_csv)
+    print(f"Saved {len(flat)} rows -> {args.output_csv}")
 
-    for _, row in df.iterrows():
-        name = row["clip_id"]
-        print(f"\nSoundscape audio clip: {name}")
-
-        # Event probabilities
-        event_vals = list(row["event_probs"].values())
-        txt_event = os.path.join(args.event_output_dir, f"{name}_event.txt")
-        np.savetxt(txt_event, event_vals)
-        print("Audio event probabilities:", event_vals)
-
-        # Scene / ISO / PAQ
-        txt_paq = os.path.join(args.paq_output_dir, f"{name}_scene_PAQ.txt")
-        with open(txt_paq, "w") as fh:
-            fh.write(row["scene"] + "\n")
-            fh.write(f"{row['isop']}\t{row['isoe']}\n")
-            paq_vals = [
-                row["pleasant"],
-                row["eventful"],
-                row["chaotic"],
-                row["vibrant"],
-                row["uneventful"],
-                row["calm"],
-                row["annoying"],
-                row["monotonous"],
-            ]
-            fh.write("\t".join(str(v) for v in paq_vals) + "\n")
-        print(f"Scene: {row['scene']}")
-        print(f"ISOP / ISOE: {row['isop']:.4f} / {row['isoe']:.4f}")
-        print(f"Top events: {', '.join(row['top_events'])}")
+    if args.legacy_txt:
+        write_legacy_txt_outputs(
+            df,
+            event_output_dir=args.event_output_dir,
+            paq_output_dir=args.paq_output_dir,
+        )
+        print(f"Saved legacy event txt files -> {args.event_output_dir}")
+        print(f"Saved legacy scene/ISO/PAQ txt files -> {args.paq_output_dir}")
 
     return 0
 

@@ -152,7 +152,48 @@ def test_inference_module():
     assert callable(inference.main)
     # Verify the resolve_model_path helper is present
     assert callable(inference.resolve_model_path)
+    assert callable(inference.flatten_prediction_results)
+    assert callable(inference.write_prediction_csv)
     assert len(inference.BUNDLED_MODELS) == 4
+
+
+@requires_torch
+@requires_pandas
+def test_flatten_prediction_results_expands_event_probs():
+    """CSV-friendly inference output includes event ranks and all probabilities."""
+    import pandas as pd
+
+    from soundaqnet.inference import EVENT_LABELS, flatten_prediction_results
+
+    probs = {label: i / 100 for i, label in enumerate(EVENT_LABELS)}
+    df = pd.DataFrame(
+        [
+            {
+                "clip_id": "clip_a",
+                "scene": "park",
+                "isop": 0.1,
+                "isoe": 0.2,
+                "pleasant": 1.0,
+                "eventful": 2.0,
+                "chaotic": 3.0,
+                "vibrant": 4.0,
+                "uneventful": 5.0,
+                "calm": 6.0,
+                "annoying": 7.0,
+                "monotonous": 8.0,
+                "top_events": ["Animal", "Noise"],
+                "event_probs": probs,
+            }
+        ]
+    )
+
+    flat = flatten_prediction_results(df)
+
+    assert flat.loc[0, "clip_id"] == "clip_a"
+    assert flat.loc[0, "top_events"] == "Animal;Noise"
+    assert flat.loc[0, "event_rank"].split(";")[0] == "Animal"
+    assert flat.loc[0, "event_prob_Human_sounds"] == probs["Human sounds"]
+    assert flat.loc[0, "event_prob_Outside_rural_or_natural"] == probs["Outside, rural or natural"]
 
 
 @requires_torch

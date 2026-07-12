@@ -98,13 +98,20 @@ print(result["scene"])        # e.g. "park"
 print(result["isop"])         # e.g.  0.62
 print(result["top_events"])   # e.g. ["Bird", "Wind", "Natural sounds", ...]
 
-# Batch from a directory
+# Batch from a directory, returning the rich DataFrame with event_probs dicts
 df = model.predict_from_audio(
     audio_dir="audio/",
     batch_size=32,
     num_workers=4,
 )
 print(df[["clip_id", "scene", "isop", "isoe"]].head())
+
+# CSV-ready output with all 15 event probabilities expanded to columns
+flat_df = model.predict_from_audio(
+    audio_dir="audio/",
+    output_csv="soundAQ.csv",
+    flat=True,
+)
 ```
 
 #### CLI
@@ -114,21 +121,24 @@ print(df[["clip_id", "scene", "isop", "isoe"]].head())
 soundaqnet-extract-mel      --input_dir audio/ --output_dir mel/      --num_workers 4
 soundaqnet-extract-loudness --input_dir audio/ --output_dir loudness/ --num_workers 4
 
-# Step 2 — run inference
+# Step 2 — run inference and write all results directly to CSV
 soundaqnet-infer \
     --dataset_mel mel/ \
     --dataset_wav_loudness loudness/ \
-    --batch_size 32
+    --batch_size 32 \
+    --output_csv soundAQ.csv
 
-# Step 3 — convert to CSV
-soundaqnet-to-df \
-    --paq_dir SoundAQnet_scene_ISOPl_ISOEv_PAQ8DAQs \
-    --event_dir SoundAQnet_event_probability \
-    --output_prefix soundAQ
+# Optional: also write the historical per-clip txt folders
+soundaqnet-infer \
+    --dataset_mel mel/ \
+    --dataset_wav_loudness loudness/ \
+    --output_csv soundAQ.csv \
+    --legacy_txt
 ```
 
-The converter writes `soundAQ.csv` (including `scene`, ISO, and PAQ columns),
-`soundAQ_stats.csv`, and `soundAQEventRank.csv` depending on `--export`.
+`soundAQ.csv` includes scene, ISO, PAQ, top event labels, full event ranking,
+and all 15 event probabilities. `soundaqnet-to-df` is still available for
+converting older legacy txt folders.
 
 ### 2.2 EmoSoundscape
 

@@ -37,7 +37,11 @@ def __getattr__(name: str):
         from soundaqnet.emosoundscape import EmoSoundscape  # noqa: F401
 
         return EmoSoundscape
+    if name == "flatten_prediction_results":
+        from soundaqnet.inference import flatten_prediction_results  # noqa: F401
+
+        return flatten_prediction_results
     raise AttributeError(f"module 'soundaqnet' has no attribute {name!r}")
 
 
-__all__ = ["SoundAQnet", "EmoSoundscape", "__version__"]
+__all__ = ["SoundAQnet", "EmoSoundscape", "flatten_prediction_results", "__version__"]
